@@ -3,7 +3,7 @@
 Your Otter Wiki is up and running.
 
 This is your [[Home]] Page, the first page you see when you access your
-wiki.
+wiki. Great!
 
 The first steps you might want to do:
 
