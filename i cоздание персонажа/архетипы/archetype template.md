@@ -1,5 +1,5 @@
 # Archetype Template
-Склонности — 4 из следующего списка: Off, Fin, Def, Psy, Knw, Soc
+Склонности — 4 из следующего списка: Off, Fin, Def, Psy, Tec, Knw, Soc, FC
 
 ##### Стартовые Навыки: 
 
