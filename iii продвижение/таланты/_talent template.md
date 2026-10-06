@@ -1,6 +1,6 @@
 # Talent Template
 
-###### English Name / Имя на русском  
+#### English Name / Имя на русском
 Уровень: X, Скл.: Y, Z  
 Требования:  
 

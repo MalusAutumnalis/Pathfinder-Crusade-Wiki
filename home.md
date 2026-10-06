@@ -1,4 +1,4 @@
-## Welcome to Pathfinder Crusade wiki!
+# Welcome to Pathfinder Crusade wiki!
 
 TO DO:
 - Пути монаха
