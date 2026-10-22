@@ -16,8 +16,10 @@
 """
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -97,6 +99,24 @@ class Document:
                 out[h.level] = parse_title(h.text).text
                 level = h.level
         return dict(sorted(out.items()))
+
+    def anchors(self):
+        """{id заголовка в движке вики: номер заголовка}, как `.scripts/wikilinks.py`."""
+        out, seen = {}, {}
+        for i, h in enumerate(self.headings):
+            slug = slugify(h.text)
+            if slug in seen:
+                seen[slug] += 1
+                out[f"{slug}-{seen[slug]}"] = i
+            else:
+                seen[slug] = 0
+                out[slug] = i
+        return out
+
+    @property
+    def key(self):
+        """Путь страницы, как его пишут ссылки: без `.md`, в нижнем регистре."""
+        return re.sub(r"\.md$", "", self.path).lower()
 
 
 def parse_document(text, path=""):
@@ -357,6 +377,25 @@ def plain_text(lines):
 
 def has_cyrillic(text):
     return bool(CYRILLIC_RE.search(text))
+
+
+# ─── Ссылки ─────────────────────────────────────────────────────────────────
+
+
+def slugify(text):
+    """id заголовка в An Otter Wiki: «Steel / Сталь» → `steel-` (кириллица пропадает)."""
+    s = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    s = s.strip().lower()
+    s = re.sub(r"[^\w\s-]", "", s)
+    return re.sub(r"[-\s]+", "-", s)
+
+
+def link_target(doc, target):
+    """Адрес ссылки со страницы doc → (ключ страницы, якорь); `#a` — та же страница."""
+    path, _, anchor = target.partition("#")
+    if not path:
+        return doc.key, anchor
+    return unquote(path).strip("/").lower(), anchor
 
 
 # ─── Таблицы ────────────────────────────────────────────────────────────────

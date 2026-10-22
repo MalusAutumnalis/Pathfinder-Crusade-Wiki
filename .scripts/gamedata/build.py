@@ -12,7 +12,10 @@ import json
 import sys
 from pathlib import Path
 
+import arsenal
+import bc as bcmod
 import character
+import conditions
 import spells
 import wiki
 from report import Report
@@ -22,20 +25,23 @@ DEFAULT_OUT = wiki.ROOT.parent / "CharacterSheet" / "internal" / "gamedata" / "a
 DEFAULT_REPORT = HERE / "report.txt"
 
 
-def unique(items, key, where, report, what):
-    """Первые записи с каждым английским именем; повторы — в отчёт."""
+def unique(items, key, where, report, what, group=None):
+    """Первые записи с каждым английским именем; повторы — в отчёт (group — свернуть по файлу)."""
     seen, out = {}, []
     for item in items:
         k = key(item).lower()
         if k in seen:
-            report.add("duplicate", where(item), f"{what} «{key(item)}» уже есть: {seen[k]}")
+            if group:
+                report.add("duplicate", where(item), f"{key(item)}: {what} уже есть ({seen[k]})", group=group)
+            else:
+                report.add("duplicate", where(item), f"{what} «{key(item)}» уже есть: {seen[k]}")
             continue
         seen[k] = where(item)
         out.append(item)
     return out
 
 
-def build(report):
+def build(report, bc_assets=bcmod.DEFAULT_ASSETS):
     """Все выгружаемые файлы: {имя файла: список записей}."""
     skill_list = character.skills(report)
     skill_names = character.skill_groups(skill_list)
@@ -64,11 +70,50 @@ def build(report):
     advancements += [s.advancement() for s in spell_list]
     advancements += [el.advancement() for el in elites if el.entry is not None]
 
-    return {
+    files = {
         "talents.json": [t.record() for t in talent_list] + [a.talent() for a in art_list],
         "traits.json": [t[0] for t in trait_list],
         "advancements.json": advancements,
         "psychic_powers.json": [s.power for s in spell_list] + [a.power() for a in art_list],
+    }
+
+    powers = [(s.power["name"], s.power.get("name_ru", ""), s.power.get("effect", ""), s.entry.where) for s in spell_list]
+    powers += [(a.name, a.power().get("name_ru", ""), a.power().get("effect", ""), a.entry.where) for a in art_list]
+    powers += [(r["name"], r.get("name_ru", ""), r["description"], t.entry.where)
+               for t in talent_list for r in [t.record()]]
+    powers += [(r["name"], r.get("name_ru", ""), r["description"], e.where) for r, e in trait_list]
+    files.update(build_arsenal(report, bcmod.BC.load(bc_assets), powers))
+    return files
+
+
+def build_arsenal(report, bc, powers):
+    """Арсенал и условия: melee, ranged, gear, cybernetics, модификации, conditions."""
+    index = arsenal.Index()
+    name = lambda x: x.name
+    where = lambda x: x.where
+
+    melee, ranged, shields = arsenal.weapons(index, report)
+    melee = unique(melee + shields, name, where, report, "рукопашное оружие")
+    ranged = unique(ranged, name, where, report, "дальнобойное оружие")
+    armour = arsenal.armour(index, report)
+    gear = arsenal.gear(index, report)
+    chemistry = [it for it in gear if it.record["gearType"] == "consumable" and "6 химия/" in it.where]
+    pairs = bcmod.chemistry(chemistry, bc, report)
+    weapons = [arsenal.Item(w.gear(), w.where) for w in melee + ranged]
+    gear = unique(weapons + armour + gear, name, where, report, "предмет",
+                  group="английское имя повторяет строку выше — выгружена первая (нужно уточнение в английском имени)")
+    cybernetics = unique(arsenal.cybernetics(index, report), name, where, report, "протез")
+    armour_mods = unique(arsenal.armour_mods(index, report), name, where, report, "модификация брони")
+    weapon_mods = unique(arsenal.weapon_mods(index, report), name, where, report, "модификация оружия")
+
+    return {
+        "melee.json": [w.record for w in melee],
+        "ranged.json": [w.record for w in ranged],
+        "gear.json": [it.record for it in gear],
+        "cybernetics.json": [it.record for it in cybernetics],
+        "armour_mods.json": [it.record for it in armour_mods],
+        "weapon_mods.json": [it.record for it in weapon_mods],
+        "conditions.json": conditions.build(bc, pairs, powers, report),
     }
 
 
@@ -76,10 +121,12 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT, help="папка ассетов PF (по умолчанию %(default)s)")
     ap.add_argument("--report", type=Path, default=DEFAULT_REPORT, help="файл отчёта (по умолчанию %(default)s)")
+    ap.add_argument("--bc", type=Path, default=bcmod.DEFAULT_ASSETS,
+                    help="ассеты Black Crusade — механика химии и статусов (по умолчанию %(default)s)")
     args = ap.parse_args(argv)
 
     report = Report()
-    files = build(report)
+    files = build(report, args.bc)
 
     args.out.mkdir(parents=True, exist_ok=True)
     for name, records in files.items():

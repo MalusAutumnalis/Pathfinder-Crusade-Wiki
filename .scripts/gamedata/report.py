@@ -12,8 +12,16 @@ KINDS = {
     "duplicate": "Дубли английских имён",
     "test": "Тест магии не на Cs, характеристику или навык PF",
     "arts": "Искусства",
+    "link": "Строки таблиц арсенала и ссылки на записи",
+    "profile": "Профили оружия и брони (Dmg, RoF, AP, тип, класс)",
+    "bc": "Механика BC: нет пары, непохожий текст",
     "review": "Пометка #Review (выгружено как есть)",
+    "bc_check": "Механика BC: числа, которых нет в тексте PF (проверить руками)",
+    "bc_moved": "Механика BC, перенесённая под другим именем или по заклинанию, таланту, трейту",
 }
+
+# Справочные разделы: не проблемы вики.
+INFO_KINDS = {"review", "bc_check", "bc_moved"}
 
 
 class Report:
@@ -52,7 +60,7 @@ class Report:
         self.notes.append(message)
 
     def problems(self):
-        return sum(len(v) for k, v in self.items.items() if k != "review")
+        return sum(len(v) for k, v in self.items.items() if k not in INFO_KINDS)
 
     def render(self):
         out = ["Pathfinder Crusade → gamedata: отчёт", ""]
@@ -83,11 +91,12 @@ def _collapse(items):
     for where, message, group in items:
         if group:
             groups[(where.rpartition(":")[0] or where, group)].append((where, message))
-    out = []
+    out, done = [], set()
     for where, message, group in items:
         key = (where.rpartition(":")[0] or where, group)
         if group and len(groups[key]) > GROUP_MIN:
-            if groups[key][0][0] == where:
+            if key not in done:
+                done.add(key)
                 names = ", ".join(m.split(":")[0] for _, m in groups[key])
                 out.append((key[0], f"{group} — {len(groups[key])} записей: {names}"))
             continue
