@@ -1,3 +1,6 @@
 *.py
+!.scripts/**/*.py
 tree.txt
 _docs/
+__pycache__/
+.scripts/gamedata/report.txt
