@@ -1,6 +1,7 @@
 # Elite Archetype Template
 
 ## Требования
+**Стоимость:** N XP  
 
 ## Становление
 
