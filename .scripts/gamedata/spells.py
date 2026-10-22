@@ -1,7 +1,8 @@
 """Заклинания, Искусства и элитные архетипы.
 
 psychic_powers.json — профиль заклинания (ключи BC, `_prd/pathfinder_gamedata/spells.md`),
-advancements.json — записи `psychic power`, Искусства как `talent`, `elite archetype`.
+advancements.json — записи `psychicPower`, Искусства как `talent`, `eliteArchetype`
+(типы — значения выпадающего списка листа, `EXPERIENCE_TYPES`).
 """
 
 import copy
@@ -123,7 +124,7 @@ class Spell:
 
     def advancement(self):
         return {
-            "type": "psychic power",
+            "type": "psychicPower",
             **character.names(self.entry),
             "discipline": self.discipline,
             "subdiscipline": self.subdiscipline,
@@ -306,7 +307,7 @@ class EliteArchetype:
 
     def advancement(self):
         return {
-            "type": "elite archetype",
+            "type": "eliteArchetype",
             **character.names(self.entry),
             "experienceCost": self.cost,
             "requirements": self.requirements,

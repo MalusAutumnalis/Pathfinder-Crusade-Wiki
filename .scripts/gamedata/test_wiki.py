@@ -236,7 +236,7 @@ class SpellTest(unittest.TestCase):
         self.assertEqual(p["effect"], "Начало ссылка.\n1) Режим.\n\nПосле таблицы.")
         self.assertNotIn("roll", p)
         self.assertEqual(mom.advancement(), {
-            "type": "psychic power", "name": "Mind Over Matter", "name_ru": "Разум Превыше Материи",
+            "type": "psychicPower", "name": "Mind Over Matter", "name_ru": "Разум Превыше Материи",
             "discipline": "Телекинез", "subdiscipline": "Базовая Сила", "experienceCost": 100, "requirements": "PR 1+",
         })
         a = jump.advancement()
