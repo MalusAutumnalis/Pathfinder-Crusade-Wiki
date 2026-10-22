@@ -7,20 +7,6 @@ CHARACTERISTICS = ("WS", "BS", "S", "T", "A", "I", "P", "W", "F")
 
 APTITUDES = CHARACTERISTICS + ("Off", "Fin", "Def", "Mag", "Tec", "Knw", "Soc", "FC", "Gen")
 
-# Склонности характеристик, пока их нет в `характеристики.md` (`**Скл.:**`
-# там читается первым): таблица BC, Psy → Mag.
-DEFAULT_CHARACTERISTIC_APTITUDES = {
-    "WS": "WS, Off",
-    "BS": "BS, Fin",
-    "S": "S, Off",
-    "T": "T, Def",
-    "A": "A, Fin",
-    "I": "I, Knw",
-    "P": "P, FC",
-    "W": "W, Mag",
-    "F": "F, Soc",
-}
-
 # Уровни продвижения как в BC (`EXPERIENCE_LEVELS_BY_TYPE` листа).
 SKILL_LEVELS = ("- -> +0", "+0 -> +10", "+10 -> +20", "+20 -> +30")
 CHARACTERISTIC_LEVELS = ("+0 -> +5", "+5 -> +10", "+10 -> +15", "+15 -> +20", "+20 -> +25")

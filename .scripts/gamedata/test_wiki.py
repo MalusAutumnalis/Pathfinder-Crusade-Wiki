@@ -302,6 +302,23 @@ class TalentTest(unittest.TestCase):
         ])
 
 
+    def test_special_levels_and_aptitudes(self):
+        r = Report()
+        mastery, sound, lore = [character.parse_talent(e, r) for e in wiki.entries(doc("""
+            # Общие
+            #### Mastery / Мастерство
+            **Уровень:** 3, **Скл.:** Как у Навыка  
+            #### Sound Constitution / Крепкое Телосложение
+            **Уровень:** —, **Скл.:** —  
+            #### Lore / Знания
+            **Уровень:** 1, **Скл.:** Gen, Gen  
+        """))]
+        self.assertEqual((mastery.level, mastery.aptitudes), (3, ""))
+        self.assertEqual((sound.level, sound.aptitudes), (None, ""))
+        self.assertEqual(lore.aptitudes, "Gen, Gen")
+        self.assertEqual(dict(r.items), {})
+
+
 class ReportTest(unittest.TestCase):
     def test_collapses_groups(self):
         r = Report()

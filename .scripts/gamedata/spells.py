@@ -18,9 +18,10 @@ ELITE_GLOB = "iii продвижение/элитные архетипы/*.md"
 
 SPELL_LABELS = ("Стоимость", "Требования", "Действие", "Поддержание", "Тест магии", "Дальность", "Тип", "Эффект")
 SPELL_REQUIRED = SPELL_LABELS
+# Заклинание элитного архетипа даётся с архетипом, без своей стоимости.
+ELITE_SPELL_REQUIRED = tuple(l for l in SPELL_LABELS if l != "Стоимость")
 ARTS_LABELS = ("Уровень", "Скл.", "Требования", "Тест магии")
-ARTS_TEST_ALIASES = ("Навык",)
-DAMAGE_TYPE_RE = re.compile(r"^[RIEX](\([A-Za-z]+\))?$")
+DAMAGE_TYPE_RE = re.compile(r"^[RIEXC](\([A-Za-z]+\))?$")
 COST_RE = re.compile(r"^\s*(\d[\d\s]*)\s*XP\s*$", re.I)
 
 
@@ -41,8 +42,6 @@ def attack_profile(e, lines, report):
             continue
         if not t.rows:
             break
-        if t.header != ["Rng", "RoF", "Dmg", "Pen", "Свойства"]:
-            report.entry("format", e, f"шапка таблицы атаки «{' | '.join(t.header)}» (нужно Rng | RoF | Dmg | Pen | Свойства)")
         row = t.rows[0]
         cell = lambda k: wiki.plain_inline(row[k]).strip() if k is not None and k < len(row) else ""
         profile["weaponRange"] = cell(rng)
@@ -74,7 +73,7 @@ def attack_profile(e, lines, report):
 
 
 class Spell:
-    def __init__(self, e, report, skills, discipline=None, subdiscipline=None):
+    def __init__(self, e, report, skills, discipline=None, subdiscipline=None, required=SPELL_REQUIRED):
         self.entry = e
         character.check_names(e, report)
         fields, rest = wiki.split_fields(e.body(), open_labels=("Эффект",))
@@ -84,7 +83,7 @@ class Spell:
         for f in fields:
             if f.label not in SPELL_LABELS:
                 report.entry("label", e, f"неизвестная метка «{f.label}»")
-        for label in SPELL_REQUIRED:
+        for label in required:
             if label not in fmap:
                 report.entry("required", e, f"нет «{label}»")
             elif not fmap[label].value.strip() and not (label == "Эффект" and rest):
@@ -162,10 +161,7 @@ class Art:
         for f in repeated:
             report.entry("label", e, f"метка «{f.label}» повторяется")
         for f in fields:
-            if f.label in ARTS_TEST_ALIASES and "Тест магии" not in fmap:
-                report.entry("label", e, f"«**{f.label}:**» вместо «**Тест магии:**»")
-                fmap["Тест магии"] = f
-            elif f.label not in ARTS_LABELS:
+            if f.label not in ARTS_LABELS:
                 report.entry("label", e, f"неизвестная метка «{f.label}»")
         self.level = character.parse_level(e, fmap.get("Уровень"), report)
         self.aptitudes = character.check_aptitudes(e, fmap.get("Скл."), report)
@@ -269,7 +265,7 @@ class EliteArchetype:
             return
         e = self.entry
         character.check_names(e, report)
-        name = e.title.text
+        name = e.title.ru or e.title.en  # дисциплина его заклинаний — по-русски
 
         req = next((s for s in wiki.sections(doc, 2) if s.title.text == "Требования"), None)
         if req is None:
@@ -301,7 +297,7 @@ class EliteArchetype:
             if "Дополнительные таланты" in groups or "Таланты" in groups:
                 self.talents.append(character.parse_talent(x, report))
             elif "Заклинания" in groups:
-                self.spells.append(Spell(x, report, skills, discipline=name, subdiscipline=""))
+                self.spells.append(Spell(x, report, skills, discipline=name, subdiscipline="", required=ELITE_SPELL_REQUIRED))
             elif "Трейты" in groups:
                 self.traits.append(character.parse_trait(x, report))
 

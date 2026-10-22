@@ -73,8 +73,11 @@ class Talent:
 
 
 def parse_level(e, f, report):
+    """Уровень таланта; «—» — талант без уровня (Sound Constitution, Power Rating)."""
     if f is None:
         report.entry("required", e, "нет «Уровень»")
+        return None
+    if pf.is_empty(f.value):
         return None
     m = re.match(r"^\s*(\d+)\s*(.*)$", f.value)
     if not m:
@@ -90,15 +93,18 @@ def parse_level(e, f, report):
 
 
 def check_aptitudes(e, f, report):
+    """Склонности через запятую. Повтор (`Gen, Gen`) — намеренно; «—» или словами
+    («Как у Навыка») — склонностей у записи нет, лист их не считает."""
     if f is None:
         report.entry("required", e, "нет «Скл.»")
         return ""
-    apts, bad = pf.parse_aptitudes(wiki.plain_inline(f.value))
+    value = wiki.plain_inline(f.value)
+    apts, bad = pf.parse_aptitudes(value)
+    good = [a for a in apts if a not in bad]
+    if pf.is_empty(value) or (not good and wiki.has_cyrillic(value)):
+        return ""
     if bad:
         report.entry("value", e, f"склонность не из списка: «{f.value}»")
-    good = [a for a in apts if a not in bad]
-    if len(set(good)) < len(good):
-        report.entry("value", e, f"склонность повторяется: «{f.value}»")
     return ", ".join(good)
 
 
@@ -129,9 +135,14 @@ def traits(report):
     out = []
     doc = wiki.read_document(wiki.ROOT / TRAITS_FILE)
     out += [parse_trait(e, report) for e in wiki.entries(doc, 4)]
+    seen = set()
     for path in wiki.md_files(*TRAIT_PAGES):
         doc = wiki.read_document(path)
-        out += [parse_trait(e, report) for e in wiki.entries(doc, 4, within=lambda g: g.get(2) == "Трейты")]
+        for e in wiki.entries(doc, 4, within=lambda g: g.get(2) == "Трейты"):
+            # Трейт нескольких рас (Vicious Strikes у орка и полуорка) — одна запись, первая.
+            if e.name.lower() not in seen:
+                seen.add(e.name.lower())
+                out.append(parse_trait(e, report))
     return out
 
 
@@ -221,21 +232,18 @@ def characteristics(report):
         title = wiki.parse_title(m.group(2))
         found[m.group(1)] = (title.ru, check_aptitudes(e, fmap["Скл."], report) if "Скл." in fmap else None)
 
-    missing = [c for c in pf.CHARACTERISTICS if found.get(c, (None, None))[1] is None]
-    if missing:
-        report.add("required", CHARACTERISTICS_FILE,
-                   f"нет «**Скл.:**» у {', '.join(missing)} — взяты склонности BC (Psy → Mag)")
     out = []
     for c in pf.CHARACTERISTICS:
         ru, apts = found.get(c, ("", None))
         if c not in found:
             report.add("required", CHARACTERISTICS_FILE, f"нет заголовка характеристики ({c})")
-        apts = apts if apts is not None else pf.DEFAULT_CHARACTERISTIC_APTITUDES[c]
+        elif apts is None:
+            report.add("required", CHARACTERISTICS_FILE, f"нет «**Скл.:**» у ({c})")
         for level, step in enumerate(pf.CHARACTERISTIC_LEVELS, 1):
             rec = {"type": "characteristic", "name": f"{c} {step}"}
             if ru:
                 rec["name_ru"] = f"{ru} {step}"
             rec["level"] = level
-            rec["aptitudes"] = apts
+            rec["aptitudes"] = apts or ""
             out.append(rec)
     return out
