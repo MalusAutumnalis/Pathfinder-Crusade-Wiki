@@ -65,7 +65,8 @@ def build(report, bc_assets=bcmod.DEFAULT_ASSETS):
     advancements = character.characteristics(report)
     for s in skill_list:
         advancements += s.advancements()
-    advancements += [t.advancement() for t in talent_list]
+    for t in talent_list:
+        advancements += t.advancements()
     advancements += [a.advancement() for a in art_list]
     advancements += [s.advancement() for s in spell_list]
     advancements += [el.advancement() for el in elites if el.entry is not None]

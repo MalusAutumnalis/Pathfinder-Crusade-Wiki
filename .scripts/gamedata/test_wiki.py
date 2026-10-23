@@ -318,6 +318,21 @@ class TalentTest(unittest.TestCase):
         self.assertEqual(lore.aptitudes, "Gen, Gen")
         self.assertEqual(dict(r.items), {})
 
+    def test_power_rating_by_pr(self):
+        [pr] = [character.parse_talent(e, Report()) for e in wiki.entries(doc("""
+            # Магия
+            #### Power Rating / Рейтинг Силы
+            **Уровень:** -, **Скл.:** Gen
+            **Требования:** PR 0
+        """))]
+        recs = pr.advancements()
+        self.assertEqual([(a["name"], a["name_ru"], a["level"]) for a in (recs[0], recs[-1])], [
+            ("Power Rating PR 2", "Рейтинг Силы PR 2", 2),
+            ("Power Rating PR 10", "Рейтинг Силы PR 10", 10),
+        ])
+        self.assertEqual(len(recs), 9)
+        self.assertEqual((recs[0]["type"], recs[0]["aptitudes"]), ("talent", "Gen"))
+
 
 class ReportTest(unittest.TestCase):
     def test_collapses_groups(self):

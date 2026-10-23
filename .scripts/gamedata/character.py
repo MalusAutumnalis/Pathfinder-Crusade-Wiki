@@ -71,6 +71,17 @@ class Talent:
             "requirements": self.requirements,
         }
 
+    def advancements(self):
+        """Записи опыта: одна, у Power Rating — по записи на каждый PR, до которого его покупают."""
+        rec = self.advancement()
+        if self.entry.title.en != pf.POWER_RATING:
+            return [rec]
+        out = []
+        for pr in pf.POWER_RATING_LEVELS:
+            names = {k: f"{rec[k]} PR {pr}" for k in ("name", "name_ru") if k in rec}
+            out.append({**rec, **names, "level": pr})
+        return out
+
 
 def parse_level(e, f, report):
     """Уровень таланта; «—» — талант без уровня (Sound Constitution, Power Rating)."""
