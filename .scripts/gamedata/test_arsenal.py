@@ -186,6 +186,11 @@ GEAR = """
 
     **Варианты:**
     - **С заслонкой.** **Вес:** 1.
+    - **Направленный.** **Вес:** 1.5.
+
+    #### Fuel / Топливо
+    **Редкость:** по варианту | **Цена:** по варианту
+    Общее про топливо: не предмет, а описание группы.
 
     #### Oil / Масло
     **Редкость:** -4 | **Вес:** 0.5 | **Цена:** 1 sp
@@ -214,9 +219,8 @@ class GearTest(unittest.TestCase):
         hooded, bullseye = self.items[0].record, self.items[1].record
         self.assertEqual((hooded["name"], hooded["name_ru"], hooded["weight"]), ("Hooded Lantern", "Фонарь с Заслонкой", 1.0))
         self.assertEqual((bullseye["name"], bullseye["weight"]), ("Bullseye Lantern", 1.5))
-        self.assertEqual(hooded["description"], bullseye["description"])
-        self.assertEqual(hooded["description"],
-                         "Масляный фонарь.\n\nPoor.Q: тусклый.\nBest.Q: яркий.\n\nВарианты:\n- С заслонкой. Вес: 1.")
+        self.assertEqual(hooded["description"], "Масляный фонарь.\n\nPoor.Q: тусклый.\nBest.Q: яркий.\n\nС заслонкой.")
+        self.assertEqual(bullseye["description"], "Масляный фонарь.\n\nPoor.Q: тусклый.\nBest.Q: яркий.\n\nНаправленный.")
         self.assertEqual((hooded["entryType"], hooded["gearType"], hooded["armour"], hooded["conditions"]),
                          ("Освещение", "gear", {}, []))
 
@@ -239,6 +243,148 @@ class GearTest(unittest.TestCase):
         self.assertEqual(items[0].record["description"],
                          "Напиток из кофейных зёрен.\n\nПриём: Жидкость\nЭффект: Штраф –10 к тестам W, кроме тестов магии.")
 
+
+VARIANTS = """
+    # Контейнеры
+    | Название | R | Wt | Цена |
+    | --- | --- | --- | --- |
+    | [Vial / Склянка](#vial-) | -3 | - | 1 gp |
+    | [Iron Vial / Железная Склянка](#vial-) | -4 | 0.5 | 1 sp |
+    | [Kvass (Mug) / Квас (кружка)](#drinks-) | -4 | 0.5 | 1 cp |
+    | [Kvass (Gallon) / Квас (галлон)](#drinks-) | -4 | 3.5 | 5 cp |
+    | [Hourglass (1 Minute) / Песочные Часы (1 мин.)](#hourglass-) | -2 | 0.2 | 20 gp |
+    | [Light Warhorse / Лёгкая Боевая Лошадь](#horse-) | -1 | - | 150 gp |
+    | [Box / Коробка](#box-) | -2 | 0.2 | 20 gp |
+
+    #### Vial / Склянка
+    **Редкость:** по варианту | **Вес:** по варианту | **Цена:** по варианту
+    Сосуд.
+
+    **Варианты:**
+    - **Стеклянная** (R-3). Бьётся. **Цена:** 1 gp.
+    - **Железная** (R-4). Не бьётся. **Вес:** 0.5. **Цена:** 1 sp.
+
+    #### Drinks / Напитки
+    **Редкость:** по варианту | **Вес:** по варианту | **Цена:** по варианту
+    Напитки.
+
+    **Варианты:**
+    - **Квас.** Кислый. **Цена:** 1 cp кружка, 5 cp галлон.
+
+    #### Hourglass / Песочные Часы
+    Часы.
+
+    **Варианты:**
+    - **6 секунд.** Раунд.
+    - **1 минута.** **Вес:** 0.2. **Цена:** 20 gp.
+
+    #### Horse / Лошадь
+    Лошадь.
+
+    **Варианты:**
+    - **Лёгкая** (R-2). Верховая.
+    - **Лёгкая боевая** (R-1). Кавалерийская.
+
+    #### Box / Коробка
+    Ящик.
+
+    **Варианты:**
+    - **Малая.** Мелкая.
+    - **Большая.** Крупная.
+"""
+
+
+class VariantsTest(unittest.TestCase):
+    def setUp(self):
+        self.r = Report()
+        idx, [page] = index(doc(VARIANTS))
+        self.items = {it.name: it.record["description"] for it in arsenal.page_items(page, idx, self.r, "gear", "")}
+
+    def test_row_gets_intro_and_own_variant(self):
+        self.assertEqual(self.items["Iron Vial"], "Сосуд.\n\nЖелезная (R-4). Не бьётся.")
+        self.assertEqual(self.items["Kvass (Mug)"], "Напитки.\n\nКвас. Кислый.")
+        self.assertEqual(self.items["Kvass (Gallon)"], self.items["Kvass (Mug)"])
+
+    def test_last_row_takes_last_variant(self):
+        self.assertEqual(self.items["Vial"], "Сосуд.\n\nСтеклянная (R-3). Бьётся.")
+
+    def test_prefix_and_most_words(self):
+        self.assertEqual(self.items["Hourglass (1 Minute)"], "Часы.\n\n1 минута.")
+        self.assertEqual(self.items["Light Warhorse"], "Лошадь.\n\nЛёгкая боевая (R-1). Кавалерийская.")
+
+    def test_row_without_variant_keeps_whole_entry(self):
+        self.assertEqual(self.items["Box"], "Ящик.\n\nВарианты:\n- Малая. Мелкая.\n- Большая. Крупная.")
+        link = messages(self.r, "link")
+        self.assertEqual(len(link), 1)
+        self.assertIn("Box: нет своего пункта", link[0])
+
+
+GRENADES = r"""
+    # Гранаты и бомбы
+    ## Гранаты
+    | Название | Тип | Rng | RoF | Dmg | Pen | Clip | Rld | Свойства | Wt | R | Цена |
+    | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+    | [Smokestick](#smokestick-) | Thrown<br>grenade | S.b×3м | S\–\– | — | — | † | † | Smoke (7) | 0.5 | -2 | 20 gp |
+    #### Smokestick / Дымовая Шашка
+    Дым.
+    ## Бомбы
+    | Название | Тип | Rng | RoF | Dmg | Pen | Clip | Rld | Свойства | Wt | R | Цена |
+    | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+    | [Powder Charge](#powder-charge-) | Thrown<br>grenade | S.b×1.5м | S\–\– | 3d10+2×M X | 6 | † | † | Blast (3+M), Tearing | M | 0 | 10 gp |
+    #### Powder Charge / Пороховой Заряд
+    Бочонок.
+"""
+
+
+class GrenadesTest(unittest.TestCase):
+    def test_grenades_and_bombs(self):
+        r = Report()
+        idx, [page] = index(doc(GRENADES))
+        out = [(arsenal.ranged_weapon(row, r), page.section(row.line), arsenal.table_weight(row, r))
+               for row in arsenal.rows(page, idx, r)]
+        (smoke, kind1, w1), (charge, kind2, w2) = out
+        self.assertEqual((smoke["name"], smoke["name_ru"], smoke["class"], smoke["damage"], smoke["damageType"]),
+                         ("Smokestick", "Дымовая Шашка", "grenade", "—", ""))
+        self.assertEqual((smoke["clipMax"], smoke["reload"], smoke["rofSingle"]), ("", "", "S"))
+        self.assertEqual((charge["damage"], charge["damageType"], charge["description"]), ("3d10+2×M", "X", "Бочонок."))
+        self.assertEqual((kind1, kind2, w1, w2), ("Гранаты", "Бомбы", 0.5, 0.0))
+        self.assertEqual(r.items, {})
+
+
+AMMO = """
+    # Боеприпасы
+    ## Стандартные боеприпасы
+    | Боеприпас | Оружие | R | Цена |
+    | --- | --- | --- | --- |
+    | Arrows / Стрелы | Луки | -3 | 5 sp |
+    ## Специальные боеприпасы
+    | Боеприпас | Категория | Кратко | R | Цена |
+    | --- | --- | --- | --- | --- |
+    | [Rope](#rope-) | Стрелы | Тянет верёвку | -1 | 10 gp |
+    | [Odd](#odd-) | Камни | Странный | -1 | 1 gp |
+    ## Стрелы
+    #### Rope / С Верёвкой
+    **Редкость:** -1 | **Цена:** 10 gp
+    Стрела с верёвкой.
+    #### Odd / Странный
+    **Редкость:** -1 | **Цена:** 1 gp
+    Странный.
+"""
+
+
+class AmmoTest(unittest.TestCase):
+    def test_standard_and_special(self):
+        r = Report()
+        idx, [page] = index(doc(AMMO))
+        arrows, rope, odd = [it.record for it in arsenal.ammunition(idx, r, page)]
+        self.assertEqual((arrows["name"], arrows["name_ru"], arrows["description"]),
+                         ("Arrows", "Стрелы", "Оружие: Луки\nЕдиница: 10 выстрелов"))
+        self.assertEqual((rope["name"], rope["name_ru"], rope["description"]),
+                         ("Rope (Arrows)", "С Верёвкой (стрелы)", "Единица: 10 выстрелов\nСтрела с верёвкой."))
+        self.assertEqual((rope["entryType"], rope["gearType"]), ("Боеприпасы", "consumable"))
+        self.assertEqual(odd["name"], "Odd")
+        self.assertEqual(len(messages(r, "value")), 1)
+        self.assertEqual(messages(r, "link"), [])
 
 MODS = """
     # Модификации

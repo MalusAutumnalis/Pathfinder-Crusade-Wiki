@@ -20,6 +20,13 @@ ARSENAL = "iv арсенал"
 MELEE_FILES = ("1 рукопашное оружие/1 базовое.md", "1 рукопашное оружие/2 особое.md")
 SHIELDS_FILE = "1 рукопашное оружие/3 щиты.md"
 RANGED_FILES = ("2 дальнобойное оружие/1 базовое.md", "2 дальнобойное оружие/2 особое.md")
+# Гранаты и бомбы — дальнобойное оружие класса grenade, entryType — раздел `##` таблицы.
+GRENADES_FILE = "2 дальнобойное оружие/4 гранаты и бомбы.md"
+# Боеприпасы — снаряжение; цены в вики за 10 выстрелов.
+AMMO_FILE = "2 дальнобойное оружие/5 боеприпасы.md"
+AMMO_UNIT = "10 выстрелов"
+# Категория специального боеприпаса → уточнение имени: «Barbed (Arrows) / Зазубренная (стрелы)».
+AMMO_CATEGORIES = {"Пули": "Bullets", "Дробь": "Shot", "Стрелы": "Arrows"}
 ARMOUR_FILE = "3 броня/1 базовая.md"
 ARMOUR_MODS_FILE = "3 броня/2 модификации.md"
 WEAPON_MODS_FILES = (
@@ -72,10 +79,15 @@ SHIELD_SUBTYPES = {
 RANGED_CLASSES = {"pistol", "rifle", "long rifle", "heavy", "throwing", "grenade", "special"}
 DAMAGE_TYPES = {"I", "I(Cr)", "R", "X", "X(Fr)", "E", "E(El)", "E(Ls)", "E(Fl)", "C", "C(Tx)"}
 
-DICE = r"(?:\d*d\d+|\d+|[A-Z]{1,2}\.b)"
+# `2×M` — множитель массы заряда (Powder Charge).
+DICE = r"(?:\d*d\d+|\d+(?:×M)?|[A-Z]{1,2}\.b)"
 DAMAGE_RE = re.compile(rf"^{DICE}(?:[+\-–]{DICE})*$")
 ROF_RE = re.compile(r"S|\d+|[–—-]")
 EMPTY = {"", "-", "–", "—"}
+# Нет значения у гранаты: урона (Smokestick) или магазина и перезарядки (†).
+NO_VALUE = EMPTY | {"†"}
+# Вес по формуле: M — масса пороха в заряде (Powder Charge).
+FORMULA_WEIGHTS = {"M"}
 
 
 def path(rel):
@@ -98,6 +110,11 @@ class Page:
     def heading(self):
         """Заголовок `#` страницы — раздел, entryType предметов."""
         h = next((h for h in self.doc.headings if h.level == 1), None)
+        return wiki.parse_title(h.text).text if h else ""
+
+    def section(self, line, level=2):
+        """Заголовок уровня level над строкой line (без пометок) или ""."""
+        h = next((h for h in reversed(self.doc.headings) if h.line < line and h.level == level), None)
         return wiki.parse_title(h.text).text if h else ""
 
     def by_name(self, en):
@@ -155,18 +172,19 @@ def weight_of(value, where, report, what="вес"):
     if w is not None:
         return w
     s = cell(value)
-    if s not in EMPTY and s != "по варианту":
+    if s not in EMPTY and s not in FORMULA_WEIGHTS and s != "по варианту":
         report.add("value", where, f"{what} «{s}» — не число, выгружен 0", group=f"{what} не число")
     return 0.0
 
 
-def entry_description(e, extra=()):
+def entry_description(e, extra=(), body=None):
     """Описание записи как в BC: текст без строки «Редкость | Вес | Цена», поля «Метка: значение».
 
-    extra — строки в начало описания. Возвращает (поля записи, текст).
+    extra — строки в начало описания; body — строки вместо тела записи
+    (свой вариант из «Варианты:»). Возвращает (поля, текст).
     """
     fields, lines = [], []
-    for n, t in e.body():
+    for n, t in (e.body() if body is None else body):
         fs = wiki.line_fields(t, n)
         fields += fs
         if fs and all(f.label in STAT_LABELS for f in fs):
@@ -183,6 +201,94 @@ def _after_block(lines):
     return any((fs := wiki.line_fields(t)) and fs[0].label in BLOCK_LABELS for _, t in lines)
 
 
+# ─── Варианты ───────────────────────────────────────────────────────────────
+# Общая запись с несколькими строками таблицы (Сундук малый/средний…) перечисляет их в
+# «**Варианты:**» пунктами `- **Малый** (R-3). Текст. **Вес:** 11. **Цена:** 2 gp.`
+
+
+def variants(e):
+    """Пункты «Варианты:» записи: (строки до списка, [(ключ, пара строки)], строки после) или None."""
+    body = e.body()
+    start = next((k for k, (_, t) in enumerate(body)
+                  if (fs := wiki.line_fields(t)) and fs[0].label == "Варианты" and not fs[0].value.strip()), None)
+    if start is None:
+        return None
+    items, k = [], start + 1
+    while k < len(body) and (body[k][1].lstrip().startswith("- ") or not body[k][1].strip()):
+        t = body[k][1].strip()
+        if t:
+            items.append((variant_key(t[2:]), body[k]))
+        k += 1
+    return body[:start], items, body[k:]
+
+
+def variant_key(text):
+    """`**Малый** (R-3). …` → «малый»; без выделения — до первой точки (`R-2. …` → «r-2»)."""
+    m = re.match(r"^\*\*([^*]+)\*\*", text)
+    return norm_name(m.group(1) if m else text.split(". ")[0])
+
+
+def norm_name(s):
+    return wiki.plain_inline(s).lower().replace("ё", "е").strip(" .:")
+
+
+def row_keys(r):
+    """Как строка таблицы может называться в «Варианты:»: русское имя, без скобок, скобки, английское."""
+    out = []
+    for name in (r.title.ru, r.title.en):
+        m = re.match(r"^(.*?)\s*\(([^()]*)\)\s*$", name)
+        out += [name, m.group(1), m.group(2)] if m else [name]
+    return [norm_name(x) for x in out if x]
+
+
+def words(s):
+    return set(re.findall(r"[\wё-]+", s))
+
+
+def match_variant(r, items):
+    """Пункт строки r: имя целиком («Квас»), все слова пункта в имени («Пеньковая» — «Пеньковая
+    Верёвка», больше слов — лучше), начало («6 сек.» → «6 секунд»). None — не нашёлся."""
+    keys = row_keys(r)
+    item = next((it for k in keys for it in items if it[0] == k), None)
+    if item is None:
+        name = words(norm_name(r.title.ru))
+        fits = [it for it in items if words(it[0]) <= name and any(len(w) >= 3 for w in words(it[0]))]
+        item = max(fits, key=lambda it: len(words(it[0])), default=None)
+    return item or next((it for k in keys for it in items if len(k) >= 3 and it[0].startswith(k)), None)
+
+
+def variant_bodies(rs, report):
+    """{id строки: строки описания по её пункту «Варианты:»} для строк, ведущих на общую запись.
+
+    Строка без пары, если она одна такая у записи и пункт без строки тоже один, получает его
+    («Склянка» — «Стеклянная»). Остальные без пары — в отчёт, им описание всей записи.
+    """
+    groups = {}
+    for r in rs:
+        if r.entry is not None:
+            groups.setdefault((r.entry.path, r.entry.index), []).append(r)
+    out = {}
+    for group in groups.values():
+        found = variants(group[0].entry)
+        if found is None:
+            continue
+        before, items, after = found
+        pairs = {id(r): match_variant(r, items) for r in group}
+        lost = [r for r in group if pairs[id(r)] is None]
+        free = [it for it in items if all(it is not p for p in pairs.values())]
+        if len(lost) == 1 and len(free) == 1:
+            pairs[id(lost[0])], lost = free[0], []
+        for r in lost:
+            report.add("link", r.where, f"{r.name}: нет своего пункта в «Варианты:» записи {r.entry.where} — описание всей записи",
+                       group="строка без своего пункта в «Варианты:»")
+        for r in group:
+            if pairs[id(r)] is not None:
+                n, text = pairs[id(r)][1]
+                text = re.sub(r"\s*\*\*(?:Цена|Вес):\*\*[^*]*", "", text.strip()[2:]).strip()
+                out[id(r)] = [*before, (n, ""), (n, text), *after]
+    return out
+
+
 def check_labels(e, fields, report, labels=LABELS):
     for f in fields:
         if f.label not in labels:
@@ -194,8 +300,10 @@ def field_value(fields, label):
 
 
 def parse_damage(text, where, report):
-    """`1d10–3+S.b R` → ('1d10–3+S.b', 'R'): тип урона — последний токен."""
+    """`1d10–3+S.b R` → ('1d10–3+S.b', 'R'): тип урона — последний токен; «—», «†» — без урона."""
     s = cell(text)
+    if s in NO_VALUE:
+        return s, ""
     m = re.match(r"^(.*\S)\s+(\S+)$", s)
     if not m:
         report.add("profile", where, f"Dmg «{s}» — нет типа урона")
@@ -266,7 +374,7 @@ def rows(page, index, report, link_required=True):
     """Строки всех таблиц страницы с найденными записями описаний."""
     out = []
     for t in page.tables:
-        col = t.column("Название", "Модификация")
+        col = t.column("Название", "Модификация", "Боеприпас")
         if col is None:
             report.add("format", f"{page.doc.path}:{t.line}", f"таблица без колонки «Название»: {t.header}")
             continue
@@ -405,7 +513,9 @@ def ranged_weapon(r, report):
         report.add("profile", r.where, f"{r.name}: класс «{cell(c.get('Тип', ''))}» — нужно `Вид<br>класс`, класс из {sorted(RANGED_CLASSES)}")
     damage, kind = parse_damage(c.get("Dmg", ""), r.where, report)
     rof = parse_rof(c.get("RoF", ""), r.where, report)
-    clip = cell(c.get("Clip", ""))
+    # † у гранат: магазина и перезарядки нет, как пустые поля гранат BC.
+    clip = "" if cell(c.get("Clip", "")) == "†" else cell(c.get("Clip", ""))
+    reload = "" if cell(c.get("Rld", "")) == "†" else cell(c.get("Rld", ""))
     return {
         **r.names(),
         "class": cls,
@@ -418,7 +528,7 @@ def ranged_weapon(r, report):
         "rofLong": rof[2],
         "clipCur": clip,
         "clipMax": clip,
-        "reload": cell(c.get("Rld", "")),
+        "reload": reload,
         "special": cell(c.get("Свойства", "")),
         "upgrades": "",
         "description": row_description(r),
@@ -454,6 +564,12 @@ def weapons(index, report):
         for r in rows(page, index, report, link_required=False):
             rec = ranged_weapon(r, report)
             ranged.append(Weapon(r, {**rec, "entryType": RANGED_TYPE}, table_weight(r, report), RANGED_TYPE))
+    page = index.page(path(GRENADES_FILE))
+    check_entries(page, report)
+    for r in rows(page, index, report):
+        kind = page.section(r.line) or RANGED_TYPE  # «Гранаты», «Бомбы»
+        rec = ranged_weapon(r, report)
+        ranged.append(Weapon(r, {**rec, "entryType": kind}, table_weight(r, report), kind))
     return melee, ranged, shields
 
 
@@ -517,7 +633,9 @@ def gear_type_for(rule, e):
 def page_items(page, index, report, gear_type, entry_type):
     """Предметы страницы снаряжения: строки таблиц, потом записи без строк."""
     out = []
-    for r in rows(page, index, report):
+    page_rows = rows(page, index, report)
+    bodies = variant_bodies(page_rows, report)
+    for r in page_rows:
         if r.entry is not None and r.entry_page is not page and r.entry.title.en.lower() == r.title.en.lower():
             continue  # ссылка на предмет другой страницы (Coffee в «Еде» → Наркотики): он выгружен там
         weight = table_weight(r, report) if "Wt" in r.cells else None
@@ -529,18 +647,29 @@ def page_items(page, index, report, gear_type, entry_type):
         extra = [f"Единица: {unit}"] if unit else []
         if weight is None or weight == 0.0 and unit:
             weight = parse_weight(unit) or 0.0
-        description = entry_description(r.entry, extra)[1] if r.entry is not None else "\n".join(extra)
+        description = (entry_description(r.entry, extra, bodies.get(id(r)))[1] if r.entry is not None
+                       else "\n".join(extra))
         rec = gear_record(r.names(), weight or 0.0, description, entry_type, gear_type_for(gear_type, r.entry))
         out.append(Item(rec, r.where, r.entry, r))
     for e in page.entries:
         if e.index in page.used:
             continue
-        report_unlisted(page, e, report)
         fields, description = entry_description(e)
+        if page.tables and is_group_note(fields):
+            if variants(e) is not None:
+                report.entry("link", e, "у пунктов «Варианты:» нет строк в таблице раздела — не выгружены")
+            continue
+        report_unlisted(page, e, report)
         w = field_value(fields, "Вес")
         weight = weight_of(w, e.where, report) if w is not None else 0.0
         out.append(Item(gear_record(names(e), weight, description, entry_type, gear_type_for(gear_type, e)), e.where, e))
     return out
+
+
+def is_group_note(fields):
+    """Запись без строки в таблице и с «Цена: по варианту» — общее описание группы (Drinks), не предмет."""
+    price = field_value(fields, "Цена")
+    return price is not None and cell(price).lower().startswith("по варианту")
 
 
 def report_unlisted(page, e, report):
@@ -561,12 +690,43 @@ def gear_files():
 
 
 def gear(index, report):
-    """Снаряжение разделов 4, 5, 6, 9: [Item]."""
+    """Снаряжение разделов 4, 5, 6, 9 и боеприпасы: [Item]."""
     out = []
     for p, rule in gear_files():
         page = index.page(p)
         check_entries(page, report, need_ru=True)
         out += page_items(page, index, report, rule, page.heading())
+    return out + ammunition(index, report)
+
+
+def ammunition(index, report, page=None):
+    """Боеприпасы: стандартные (строки без записей) и специальные (`Barbed (Arrows)`).
+
+    Специальный боеприпас называется по категории таблицы: «Rope» стрелы — не верёвка,
+    «Ball» дроби — не пуля. page — вместо файла (тесты).
+    """
+    page = page or index.page(path(AMMO_FILE))
+    check_entries(page, report, need_ru=True)
+    out = []
+    for r in rows(page, index, report, link_required=False):
+        c = r.cells
+        names_ = r.names()
+        extra = [f"{h}: {cell(c[h])}" for h in ("Оружие",) if cell(c.get(h, ""))]
+        extra.append(f"Единица: {AMMO_UNIT}")
+        cat = cell(c.get("Категория", ""))
+        if cat:
+            en = AMMO_CATEGORIES.get(cat)
+            if en is None:
+                report.add("value", r.where, f"{r.name}: категория «{cat}» не из {', '.join(AMMO_CATEGORIES)}")
+            else:
+                names_["name"] = f"{names_['name']} ({en})"
+                if "name_ru" in names_:
+                    names_["name_ru"] = f"{names_['name_ru']} ({cat.lower()})"
+        description = entry_description(r.entry, extra)[1] if r.entry is not None else "\n".join(extra)
+        out.append(Item(gear_record(names_, 0.0, description, page.heading(), "consumable"), r.where, r.entry, r))
+    for e in page.entries:
+        if e.index not in page.used:
+            report_unlisted(page, e, report)
     return out
 
 
