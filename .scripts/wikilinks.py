@@ -3,6 +3,8 @@
     python .scripts/wikilinks.py check          проверить все ссылки
     python .scripts/wikilinks.py tables         показать, что поменяется в таблицах
     python .scripts/wikilinks.py tables --write записать изменения
+    python .scripts/wikilinks.py archetypes     ссылки на навыки, таланты и трейты
+                                                в архетипах (--write — записать)
 
 id заголовка считается так же, как в движке: NFKD → выкинуть не-ASCII →
 strip → lower → удалить пунктуацию → пробелы/дефисы в один дефис.
@@ -18,7 +20,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parent.parent
-SKIP_DIRS = {".git", ".scripts", "_docs"}
+SKIP_DIRS = {".git", ".claude", ".scripts", "_docs"}
 ITEM_SECTION = "iv арсенал/"
 
 HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$")
@@ -60,6 +62,7 @@ class Heading:
     text: str
     id: str
     line: int
+    level: int = 0
 
     @property
     def stable(self):
@@ -109,7 +112,7 @@ def load_page(path):
         else:
             seen[slug] = 0
             hid = slug
-        page.headings.append(Heading(m.group(2), hid, n))
+        page.headings.append(Heading(m.group(2), hid, n, len(m.group(1))))
     return page
 
 
@@ -290,15 +293,228 @@ def tables(pages, write):
     print(f"\n{verb}: {changed}, не удалось: {unresolved}")
 
 
+# --- Архетипы: ссылки на навыки, таланты и трейты ---------------------------
+
+ARCHETYPE_DIRS = ("i создание персонажа/архетипы/", "iii продвижение/элитные архетипы/")
+SKILLS_PAGE = "iii продвижение/навыки"
+TALENTS_DIR = "iii продвижение/таланты/"
+TRAITS_PAGE = "iii продвижение/трейты"
+
+# Имя в архетипе → имя в заголовке, когда они расходятся.
+ALIASES = {
+    "navigate": "navigation",
+    "interrogation": "interrogate",
+    "meditate": "meditation",
+    "wrestle": "wrestler",
+}
+# Имена, которые ведут на целую страницу, а не на заголовок.
+PAGE_LINKS = {"bardic art": "v магия/искусства/искусства барда"}
+
+START_SECTIONS = {"стартовые навыки": "skill", "стартовые таланты": "talent"}
+REQ_RE = re.compile(r"^\*\*(Трейты|Навыки|Таланты):\*\*[ \t]*")
+REQ_KINDS = {"Трейты": "trait", "Навыки": "skill", "Таланты": "talent"}
+# Английское имя и, если есть, скобки сразу за ним: «Trade (Chymist)».
+ITEM_RE = re.compile(r"(?P<name>[A-Za-z][A-Za-z'’-]*(?: [A-Za-z][A-Za-z'’-]*)*)"
+                     r"(?P<arg> ?\((?P<inner>[^()]*)\))?")
+
+
+def norm(text):
+    text = text.replace("’", "'").replace("ё", "е").replace("-", " ")
+    text = re.sub(r"\s+", " ", text).strip().lower()
+    return ALIASES.get(text, text)
+
+
+def heading_names(heading):
+    """Английская часть заголовка: (целиком, без скобок в конце)."""
+    eng = re.sub(r"\s*#\w+$", "", plain(heading.text).split(" / ")[0])
+    return norm(eng), norm(re.sub(r"\s*\([^)]*\)$", "", eng))
+
+
+class Index:
+    """Заголовки, на которые ведут ссылки, по английскому имени."""
+
+    def __init__(self, entries):
+        self.full, self.base = {}, {}
+        for page, h in entries:
+            full, base = heading_names(h)
+            self.full.setdefault(full, []).append((page, h))
+            self.base.setdefault(base, []).append((page, h))
+
+    def find(self, name, inner=None):
+        """Возвращает ((страница, заголовок), взяты ли скобки) или текст ошибки.
+
+        Сначала «Имя (скобки)» целиком, потом просто «Имя». Если под
+        именем несколько заголовков на одной странице (Heightened Senses,
+        Two Weapon Wielder) — первый из них.
+        """
+        name = norm(name)
+        if inner and f"{name} ({norm(inner)})" in self.full:
+            return self.full[f"{name} ({norm(inner)})"][0], True
+        hits = self.base.get(name) or self.full.get(name)
+        if not hits:
+            return "заголовок не найден"
+        if len({p.rel for p, _ in hits}) > 1:
+            return "несколько заголовков: " + ", ".join(f"{p.rel}#{h.id}" for p, h in hits)
+        return hits[0], False
+
+
+def build_indexes(pages):
+    skills = pages[SKILLS_PAGE]
+    groups, children, group = [], {}, None
+    for h in skills.headings:
+        if h.level == 4:
+            group = h
+            groups.append((skills, h))
+            children[h.id] = []
+        elif h.level == 5 and group:
+            children[group.id].append((skills, h))
+    talents = [(p, h) for p in pages.values() if p.rel.startswith(TALENTS_DIR)
+               and not p.path.name.startswith("_") for h in p.headings if h.level > 1]
+    traits = [(pages[TRAITS_PAGE], h) for h in pages[TRAITS_PAGE].headings if h.level == 4]
+    return {
+        "skill": Index(groups),
+        "skill children": {gid: Index(c) for gid, c in children.items() if c},
+        "talent": Index(talents),
+        "trait": Index(traits),
+        "pages": {name: pages[rel] for name, rel in PAGE_LINKS.items()},
+    }
+
+
+def split_top(text, seps):
+    """Делит строку по разделителям вне скобок, разделители остаются в списке."""
+    parts, depth, start, i = [], 0, 0, 0
+    while i < len(text):
+        c = text[i]
+        depth += (c == "(") - (c == ")")
+        sep = depth == 0 and next((s for s in seps if text.startswith(s, i)), None)
+        if sep:
+            parts += [text[start:i], sep]
+            i = start = i + len(sep)
+            continue
+        i += 1
+    return parts + [text[start:]]
+
+
+def md_link(text, target):
+    other, heading = target
+    return f"[{text}]({other.url}#{heading.id})"
+
+
+def link_item(idx, kind, item):
+    """Ставит ссылки в один пункт списка. Возвращает (новый текст, [заметки])."""
+    if "](" in item or not item.strip():
+        return item, []
+    m = ITEM_RE.search(item)
+    if not m or m.start() > len(item) - len(item.lstrip()):
+        return item, []  # «500 XP на заклинания» и прочий текст без имени
+    name, arg, inner = m.group("name", "arg", "inner")
+    if re.fullmatch(r"[A-Z]{1,3}", name):
+        return item, []  # PR 2, XP
+    head, tail = item[:m.start()], item[m.end():]
+    arg = arg or ""
+    if norm(name) in idx["pages"]:
+        return f"{head}[{name}]({idx['pages'][norm(name)].url}){arg}{tail}", []
+
+    found = idx[kind].find(name, inner)
+    if isinstance(found, str):
+        return item, [f"{name}{arg} — {found}"]
+    target, took_arg = found
+    notes = [] if target[1].stable else [f"{name} — заголовок без латиницы, якорь сдвинется"]
+    if took_arg:
+        return f"{head}{md_link(name + arg, target)}{tail}", notes
+
+    if kind == "skill" and inner:
+        # Специализация навыка: «Common Lore (War)» → заголовок War под Common Lore.
+        kids = idx["skill children"].get(target[1].id)
+        child = kids and kids.find(inner)
+        if child and not isinstance(child, str):
+            return f"{head}{md_link(name + arg, child[0])}{tail}", notes
+        # Список специализаций в скобках: «Trade (2 из списка: Dancer, Musician)».
+        if kids:
+            prefix, colon, names = inner.rpartition(":")
+            pieces = split_top(names, [", "])
+            linked = []
+            for piece in pieces:
+                hit = kids.find(piece.strip()) if piece.strip() else None
+                if hit and not isinstance(hit, str):
+                    piece = piece.replace(piece.strip(), md_link(piece.strip(), hit[0]))
+                elif colon and re.fullmatch(r"[A-Za-z][A-Za-z '’-]*", piece.strip()):
+                    notes.append(f"{name} ({piece.strip()}) — специализации нет")
+                linked.append(piece)
+            new_inner = prefix + colon + "".join(linked)
+            if new_inner != inner:
+                arg = arg.replace(f"({inner})", f"({new_inner})")
+            elif re.fullmatch(r"[A-Za-z][A-Za-z '’-]*", inner):
+                notes.append(f"{name} ({inner}) — специализации нет, ссылка на группу")
+    return f"{head}{md_link(name, target)}{arg}{tail}", notes
+
+
+def archetype_lines(page):
+    """Строки со списками навыков/талантов/трейтов: [(индекс строки, вид, текст)]."""
+    out, kind = [], None
+    for i, line in enumerate(page.lines):
+        text = line.rstrip("\r\n")
+        m = HEADING_RE.match(text)
+        if m:
+            kind = START_SECTIONS.get(m.group(2).strip().lower())
+            continue
+        req = REQ_RE.match(text)
+        if req:
+            out.append((i, REQ_KINDS[req.group(1)], req.end()))
+        elif kind and text.strip():
+            out.append((i, kind, 0))
+    return out
+
+
+def archetypes(pages, write):
+    idx = build_indexes(pages)
+    changed = unresolved = 0
+    for page in pages.values():
+        if not page.rel.startswith(ARCHETYPE_DIRS) or "template" in page.rel:
+            continue
+        dirty = False
+        for i, kind, start in archetype_lines(page):
+            line = page.lines[i]
+            body = line.rstrip("\r\n")
+            content = body.rstrip()
+            trail = line[len(content):]
+            seps = [" или ", " or "] + ([", "] if start else [])
+            parts = split_top(content[start:], seps)
+            new_parts = []
+            for n, part in enumerate(parts):
+                if n % 2:  # разделитель
+                    new_parts.append(part)
+                    continue
+                new, notes = link_item(idx, kind, part)
+                new_parts.append(new)
+                for note in notes:
+                    unresolved += 1
+                    print(f"{page.rel}.md:{i + 1}: {note}")
+            new_content = content[:start] + "".join(new_parts)
+            if new_content != content:
+                print(f"{page.rel}.md:{i + 1}: {new_content}")
+                page.lines[i] = new_content + trail
+                dirty = True
+                changed += 1
+        if dirty and write:
+            with open(page.path, "w", encoding="utf-8", newline="") as f:
+                f.write("".join(page.lines))
+    verb = "изменено строк" if write else "будет изменено строк"
+    print(f"\n{verb}: {changed}, замечаний: {unresolved}")
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     args = sys.argv[1:]
-    if not args or args[0] not in {"check", "tables"}:
+    if not args or args[0] not in {"check", "tables", "archetypes"}:
         print(__doc__)
         return 2
     pages = load_wiki()
     if args[0] == "check":
         return 1 if check(pages) else 0
+    if args[0] == "archetypes":
+        archetypes(pages, write="--write" in args)
+        return 0
     tables(pages, write="--write" in args)
     return 0
 
