@@ -299,13 +299,14 @@ def line_fields(text, line=0):
     return out
 
 
-def split_fields(lines, open_labels=()):
+def split_fields(lines, open_labels=(), known=None):
     """Блок полей в начале записи и остаток.
 
     lines — пары (номер, текст). Блок — подряд идущие строки с метками в
     начале (пустые строки между ними пропускаются). Метка из open_labels
     (например «Эффект») заканчивает блок: её значение продолжается текстом
-    ниже, и он попадает в остаток.
+    ниже, и он попадает в остаток. known — метки блока: строка, которая
+    начинается с другой метки («**Пассивно:**»), — уже текст записи.
 
     Возвращает (поля, остаток строк).
     """
@@ -317,7 +318,7 @@ def split_fields(lines, open_labels=()):
             k += 1
             continue
         fs = line_fields(text, n)
-        if not fs:
+        if not fs or (known is not None and fs[0].label not in known):
             break
         fields.extend(fs)
         k += 1

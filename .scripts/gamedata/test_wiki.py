@@ -75,6 +75,12 @@ class FieldsTest(unittest.TestCase):
         self.assertEqual([f.label for f in fields], ["Стоимость", "Эффект"])
         self.assertEqual(rest, [(4, "**Раны:** 10"), (5, "Хвост")])
 
+    def test_split_fields_stops_at_unknown_label(self):
+        lines = [(1, "**Уровень:** 1, **Скл.:** W, Cul"), (2, "**Пассивно:** Текст."), (3, "**Активно (1 Ки):** Ещё.")]
+        fields, rest = wiki.split_fields(lines, known=("Уровень", "Скл."))
+        self.assertEqual([f.label for f in fields], ["Уровень", "Скл."])
+        self.assertEqual([n for n, _ in rest], [2, 3])
+
     def test_split_fields_stops_at_text(self):
         fields, rest = wiki.split_fields([(1, "**Скл.:** A, Gen"), (2, "Текст."), (3, "**Действие:** Полное")])
         self.assertEqual([f.label for f in fields], ["Скл."])
@@ -333,6 +339,70 @@ class TalentTest(unittest.TestCase):
         self.assertEqual(len(recs), 9)
         self.assertEqual((recs[0]["type"], recs[0]["aptitudes"]), ("talent", "Gen"))
 
+
+class OathsTest(unittest.TestCase):
+    def test_oath_and_its_ability_are_traits(self):
+        r = Report()
+        [(oath, _), (ability, _)] = character.oaths(r, doc("""
+            # Клятвы
+            ## Oath of the Crown
+            Справедливость.
+
+            Я поддерживаю закон.
+
+            #### Order on the Battlefield / Порядок на Поле Боя
+            Паладин командует.
+
+            **Искусство клятвы:** [Achilles Heel / Ахиллесова Пята](/V%20Магия/Искусства#achilles-heel-)
+        """))
+        self.assertEqual(oath, {"name": "Oath of the Crown", "description":
+                                "Справедливость.\n\nЯ поддерживаю закон.\n\n"
+                                "Способность клятвы: Order on the Battlefield / Порядок на Поле Боя\n"
+                                "Искусство клятвы: Achilles Heel / Ахиллесова Пята"})
+        self.assertEqual(ability, {"name": "Order on the Battlefield", "name_ru": "Порядок на Поле Боя", "description":
+                                   "Способность клятвы Oath of the Crown.\nПаладин командует.\n\n"
+                                   "Искусство клятвы: Achilles Heel / Ахиллесова Пята"})
+        self.assertEqual(dict(r.items), {})
+
+
+class MonkPathsTest(unittest.TestCase):
+    def test_abilities_are_talents_and_vows_traits(self):
+        r = Report()
+        rules = doc("""
+            # Пути культивации
+            #### Навык пути
+            Общие правила.
+        """)
+        path = doc("""
+            # Отшельник
+            **Характеристика:** W
+            #### Way of Vows / Путь Обетов
+            **Уровень:** 1, **Скл.:** W, Cul
+
+            **Пассивно:** Монах даёт обеты.
+            #### Geas / Зарок
+            **Уровень:** 3, **Скл.:** W, Cul
+            **Требования:** Way of Vows
+            **Свершение:** отпустить врага.
+            **Активно (2 Ки):** Накладывает обет.
+            #### Needle / Игла
+            **Активно (1 Ки):** Черновик без уровня.
+            ## Обеты
+            #### Обет Молчания
+            **Ограничение:** Молчит.
+        """)
+        abilities, vows = character.monk_paths(r, [rules, path])
+        way, geas, needle = abilities
+        self.assertEqual(way.record()["description"], "Способность пути культивации «Отшельник».\nПассивно: Монах даёт обеты.")
+        self.assertEqual(geas.record()["description"],
+                         "Способность пути культивации «Отшельник».\nСвершение: отпустить врага.\nАктивно (2 Ки): Накладывает обет.")
+        self.assertEqual(geas.advancements(), [{"type": "talent", "name": "Geas", "name_ru": "Зарок", "level": 3,
+                                                "aptitudes": "W, Cul", "requirements": "Way of Vows"}])
+        self.assertEqual(needle.advancements(), [])
+        self.assertEqual(vows, [({"name": "Обет Молчания", "description": "Ограничение: Молчит."}, vows[0][1])])
+        self.assertEqual(sorted(m for _, m, _ in r.items["required"]), ["Needle: нет «Скл.»", "Needle: нет «Уровень»"])
+        self.assertEqual([m for _, m, _ in r.items["name"]], ["Обет Молчания: нет английского имени (нужно `English / Русское`)"])
+        self.assertNotIn("label", r.items)
 
 class ReportTest(unittest.TestCase):
     def test_collapses_groups(self):

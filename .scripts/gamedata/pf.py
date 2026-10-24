@@ -5,7 +5,8 @@ import re
 # Характеристики PF (без Inf, Cor, Fa) в порядке листа.
 CHARACTERISTICS = ("WS", "BS", "S", "T", "A", "I", "P", "W", "F")
 
-APTITUDES = CHARACTERISTICS + ("Off", "Fin", "Def", "Mag", "Tec", "Knw", "Soc", "FC", "Gen")
+# Cul — склонность путей культивации монаха (`архетипы/монах/0 пути.md`), в `склонности.md` её нет.
+APTITUDES = CHARACTERISTICS + ("Off", "Fin", "Def", "Mag", "Tec", "Knw", "Soc", "FC", "Gen", "Cul")
 
 # Уровни продвижения как в BC (`EXPERIENCE_LEVELS_BY_TYPE` листа).
 SKILL_LEVELS = ("- -> +0", "+0 -> +10", "+10 -> +20", "+20 -> +30")

@@ -46,8 +46,9 @@ def build(report, bc_assets=bcmod.DEFAULT_ASSETS):
     skill_list = character.skills(report)
     skill_names = character.skill_groups(skill_list)
 
-    talent_list = character.talents(report)
-    trait_list = character.traits(report)
+    path_abilities, vows = character.monk_paths(report)
+    talent_list = character.talents(report) + path_abilities
+    trait_list = character.traits(report) + character.oaths(report) + vows
     spell_list = spells.spells(report, skill_names)
     elites = spells.elite_archetypes(report, skill_names)
     for el in elites:

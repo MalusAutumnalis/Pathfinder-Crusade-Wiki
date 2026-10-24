@@ -15,7 +15,13 @@ TRAIT_PAGES = ("i создание персонажа/расы/*.md", "i соз�
 SKILLS_FILE = "iii продвижение/навыки.md"
 CHARACTERISTICS_FILE = "iii продвижение/характеристики.md"
 
-TALENT_LABELS = ("Уровень", "Скл.", "Требования", "Специализации", "Действие", "Тип")
+OATHS_FILE = "i создание персонажа/архетипы/паладин/клятвы.md"
+MONK_PATHS_GLOB = "i создание персонажа/архетипы/монах/*.md"
+
+# «Свершение» — у способностей путей монаха: поступок, без которого способность не открыть.
+TALENT_LABELS = ("Уровень", "Скл.", "Требования", "Специализации", "Действие", "Тип", "Свершение")
+# Метки, которые идут в начало описания таланта.
+TALENT_TEXT_LABELS = ("Свершение", "Специализации", "Действие", "Тип")
 SKILL_CHAR_RE = re.compile(r"\s*\((WS|BS|S|T|A|I|P|W|F)\)\s*$")
 
 
@@ -56,7 +62,7 @@ class Talent:
         req = fmap.get("Требования")
         self.requirements = None if req is None or pf.is_empty(req.value) else wiki.plain_inline(req.value).strip()
 
-        extra = [f"{f.label}: {wiki.plain_inline(f.value)}" for f in fields if f.label in ("Специализации", "Действие", "Тип")]
+        extra = [f"{f.label}: {wiki.plain_inline(f.value)}" for f in fields if f.label in TALENT_TEXT_LABELS]
         self.description = "\n".join(extra + ([text] if text else []))
 
     def record(self):
@@ -155,6 +161,76 @@ def traits(report):
                 seen.add(e.name.lower())
                 out.append(parse_trait(e, report))
     return out
+
+
+# ─── Клятвы паладина ────────────────────────────────────────────────────────
+
+
+def oaths(report, doc=None):
+    """Клятвы `паладин/клятвы.md` как трейты: [(запись, wiki.Entry)].
+
+    Клятва — раздел `## Oath of X` (кредо, способность, Искусство клятвы),
+    её способность — запись `####` в разделе. Обе — трейты: клятву ищут по
+    имени клятвы, способность — по своему. doc — вместо файла (тесты).
+    """
+    doc = doc or wiki.read_document(wiki.ROOT / OATHS_FILE)
+    out = []
+    for oath in wiki.sections(doc, 2):
+        check_names(oath, report, need_ru=False)
+        abilities = oath.children(4)
+        if not abilities:
+            report.entry("required", oath, "нет способности клятвы (`#### English / Русское`)")
+        lines, traits = [wiki.plain_text(oath.own_body()), ""], []
+        for a in abilities:
+            check_names(a, report)
+            text = wiki.plain_text(a.body())
+            traits.append(({**names(a), "description": f"Способность клятвы {oath.title.text}.\n{text}"}, a))
+            lines.append(f"Способность клятвы: {a.title.text}")
+            art = next((f for n, t in a.body() for f in wiki.line_fields(t, n) if f.label == "Искусство клятвы"), None)
+            if art is not None:
+                lines.append(f"Искусство клятвы: {wiki.plain_inline(art.value).strip()}")
+        out.append(({**names(oath), "description": "\n".join(lines).strip()}, oath))
+        out += traits
+    return out
+
+
+# ─── Пути монаха ────────────────────────────────────────────────────────────
+
+
+class PathAbility(Talent):
+    """Способность пути культивации: покупается как талант; без уровня (черновик) — без записи опыта."""
+
+    def __init__(self, e, path, report):
+        check_names(e, report)
+        fields, rest = wiki.split_fields(e.body(), known=TALENT_LABELS)
+        super().__init__(e, fields, wiki.plain_text(rest), report)
+        self.description = f"Способность пути культивации «{path}».\n{self.description}"
+
+    def advancements(self):
+        return [] if self.level is None else super().advancements()
+
+
+def monk_paths(report, docs=None):
+    """Пути `монах/*.md` (страницы с `**Характеристика:**`): (способности как таланты, обеты как трейты).
+
+    Способности — записи `####` прямо под `# Путь`; записи в `## Обеты` (Отшельник) — трейты.
+    docs — вместо файлов (тесты).
+    """
+    abilities, vows = [], []
+    for doc in docs or map(wiki.read_document, wiki.md_files(MONK_PATHS_GLOB)):
+        top = wiki.sections(doc, 1)
+        if not top:
+            continue
+        fields, _ = wiki.split_fields(top[0].own_body())
+        if not any(f.label == "Характеристика" for f in fields):
+            continue  # общие правила путей, не путь
+        name = top[0].title.text
+        for e in wiki.entries(doc, 4):
+            if e.groups.get(2) == "Обеты":
+                vows.append(parse_trait(e, report))
+            elif 2 not in e.groups:
+                abilities.append(PathAbility(e, name, report))
+    return abilities, vows
 
 
 # ─── Навыки ─────────────────────────────────────────────────────────────────
