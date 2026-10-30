@@ -20,24 +20,37 @@ def messages(r, kind):
 MATERIALS = """
     # Материалы
 
-    | Материал | Тип | Применение | R | Цена | Банк | Вес | Прочность | Ёмкость | AP | Pen | Особое |
+    | Материал | База | Применение | R | Цена | Банк | Вес | Прочность | Ёмкость | AP | Pen | Особое |
     | --- | --- | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | --- |
-    | [Мифрил](#mithral-) | Металл | Универсальный | 3 | ×15 | ×1.5 | ×0.5 | 2 | ×1 | +1 | +1 | +20 Max.A |
+    | [Мифрил](#mithral-) | Сталь | Универсальный | 3 | ×15 | ×1.5 | ×0.5 | 2 | ×1 | +1 | +1 | +20 Max.A |
     | [Кожа](#leather-) | Кожа | Броня | −3 | ×0.3 | ×0.5 | ×1 | −1 | ×1 | 0 | — | — |
+    | [Живое Дерево](#livewood-) | Дерево | Оружие, Щиты | 1 | ×20 | ×1 | ×1 | 0 | ×2 | 0 | 0 | Может заменять сталь |
+
+    ## Металлы
 
     #### Mithral / Мифрил
     **Редкость:** 3 | **Цена:** ×15 | **Банк:** ×1.5 | **Вес:** ×0.5 | **Прочность:** 2 | **Ёмкость:** ×1 | **AP:** +1 | **Pen:** +1
-    **Применение:** Универсальный
+    **Применение:** Универсальный | **База:** Сталь
     **Особое:**
     - Броня получает +20 Max.A.
     - Клинки острее.
 
     **Описание:** Лёгкий металл.
 
+    ## Кожа
+
     #### Leather / Кожа
     **Редкость:** −3 | **Цена:** ×0.3 | **Банк:** ×0.5 | **Вес:** ×1 | **Прочность:** −2 | **Ёмкость:** ×1 | **AP:** 0 | **Pen:** —
-    **Применение:** Броня
+    **Применение:** Броня | **База:** Лён
     **Описание:** Выделанная кожа.
+
+    ## Дерево
+
+    #### Livewood / Живое Дерево
+    **Редкость:** 1 | **Цена:** ×20 | **Банк:** ×1 | **Вес:** ×1 | **Прочность:** 0 | **Ёмкость:** ×2 | **AP:** 0 | **Pen:** 0
+    **Применение:** Оружие, Щиты | **База:** Дерево
+    **Особое:** Самовосстановление.
+    **Описание:** Живая древесина.
 
     #### Tin / Олово
     **Редкость:** 0
@@ -65,6 +78,24 @@ class MaterialsTest(unittest.TestCase):
         self.assertEqual(m["short"], "+20 Max.A")
         self.assertEqual(m["special"], "- Броня получает +20 Max.A.\n- Клинки острее.")
         self.assertEqual(m["description"], "Лёгкий металл.")
+
+    def test_section_and_base(self):
+        m = self.by_name["Mithral"]
+        self.assertEqual((m["entryType"], m["base"]), ("Металл", "Сталь"))
+        self.assertEqual(self.by_name["Leather"]["entryType"], "Кожа")
+        self.assertTrue(any("База: в записи Лён, в таблице Кожа" in m for m in messages(self.r, "value")))
+        self.assertFalse(messages(self.r, "label"))
+
+    def test_wood_for_steel(self):
+        wood = self.by_name["Livewood (instead of Steel)"]
+        self.assertEqual((wood["name_ru"], wood["entryType"], wood["base"], wood["use"]),
+                         ("Живое Дерево (вместо стали)", "Дерево", "Сталь", "Оружие"))
+        self.assertEqual((wood["priceFactor"], wood["weightFactor"], wood["pen"], wood["capacityFactor"]), (2, 0.5, -1, 2))
+        self.assertEqual(wood["short"], "−3 R и P Dmg")
+        self.assertTrue(wood["special"].endswith("\nСамовосстановление."))
+        names = [m["name"] for m in self.out]
+        self.assertEqual(names.index("Livewood (instead of Steel)"), names.index("Livewood") + 1)
+        self.assertNotIn("Mithral (instead of Steel)", names)
 
     def test_dash_is_none(self):
         leather = self.by_name["Leather"]

@@ -1,7 +1,8 @@
 """Материалы, камни инкрустации и зачарования предметов (Pathfinder Crusade).
 
 materials.json — материалы из таблицы и записей `8 материалы.md` (entryType —
-колонка «Тип») и камни из таблицы «Инкрустация» того же файла (entryType
+раздел `##` записи, base — колонка «База»), варианты деревянных материалов
+«вместо стали» и камни из таблицы «Инкрустация» того же файла (entryType
 «Инкрустация»); enchantments.json — зачарования: таблица `7 зачарования.md`
 (категория → entryType, «Кратко» → short) и записи `7 зачарования/*.md`
 (уровни). Формат записей — `_prd/item_materials/plan.md` чарника.
@@ -26,7 +27,17 @@ INLAY_TYPE = "Инкрустация"
 GEMS_EN = {"Кварц": "Quartz", "Оникс": "Onyx", "Рубин": "Ruby", "Изумруд": "Emerald", "Алмаз": "Diamond"}
 
 MATERIAL_STATS = ("Редкость", "Цена", "Банк", "Вес", "Прочность", "Ёмкость", "AP", "Pen")
-MATERIAL_TEXTS = ("Применение", "Особое", "Описание")
+MATERIAL_TEXTS = ("Применение", "База", "Особое", "Описание")
+# Раздел `##` → entryType; остальные разделы — как есть.
+SECTION_TYPES = {"Металлы": "Металл"}
+
+WOOD_BASE = "Дерево"
+# Дерево вместо стали («## Дерево»): отдельная запись автодополнения, у листа нет
+# базы предмета. Множители — к множителям материала, Pen — к его Pen.
+WOOD_FOR_STEEL = {"priceFactor": 0.1, "weightFactor": 0.5, "pen": -1}
+WOOD_FOR_STEEL_SHORT = "−3 R и P Dmg"
+WOOD_FOR_STEEL_SPECIAL = ("Вместо стали: цена ×0.1, вес ×0.5 от стальной версии, профили с R и P Dmg "
+                          "наносят на 3 Dmg меньше, Pen оружия −1.")
 # Поле записи → колонка таблицы и ключ JSON.
 MATERIAL_FIELDS = {
     "Редкость": ("R", "rarity"),
@@ -148,7 +159,14 @@ def materials(report, doc=None):
         for lab in extra:
             report.entry("label", e, f"неизвестная метка «{lab}»")
 
-        rec = {**names(e), "entryType": cell(row["Тип"]), "use": fields.get("Применение") or cell(row["Применение"])}
+        section = e.groups.get(2, "")
+        if not section:
+            report.entry("format", e, "материал вне раздела `##`: нет entryType")
+        base = cell(row.get("База", ""))
+        if fields.get("База", base) != base:
+            report.entry("value", e, f"База: в записи {fields['База']}, в таблице {base}")
+        rec = {**names(e), "entryType": SECTION_TYPES.get(section, section), "base": base,
+               "use": fields.get("Применение") or cell(row["Применение"])}
         for label_, (column, key) in MATERIAL_FIELDS.items():
             raw = fields.get(label_, row.get(column, ""))
             try:
@@ -165,6 +183,8 @@ def materials(report, doc=None):
         rec["description"] = fields.get("Описание", "")
         rec["conditions"] = MATERIAL_CONDITIONS.get(rec["name"], [])
         out.append(rec)
+        if base == WOOD_BASE:
+            out.append(wood_for_steel(rec))
 
     for e in wiki.entries(doc, 4):
         if e.index not in seen:
@@ -173,6 +193,22 @@ def materials(report, doc=None):
         if not any(r["name"] == name for r in out):
             report.add("value", doc.path, f"правило условий материала «{name}»: нет такого материала")
     return out + inlays(doc, report)
+
+
+def _round(x):
+    x = round(x, 6)
+    return int(x) if float(x).is_integer() else x
+
+
+def wood_for_steel(rec):
+    """Вариант деревянного материала для предмета, который обычно делают из стали."""
+    out = {**rec, "name": f"{rec['name']} (instead of Steel)", "name_ru": f"{rec['name_ru']} (вместо стали)",
+           "base": "Сталь", "use": "Оружие", "short": WOOD_FOR_STEEL_SHORT,
+           "special": "\n".join(t for t in (WOOD_FOR_STEEL_SPECIAL, rec["special"]) if t)}
+    for key in ("priceFactor", "weightFactor"):
+        out[key] = _round(rec[key] * WOOD_FOR_STEEL[key]) if rec[key] is not None else None
+    out["pen"] = (rec["pen"] or 0) + WOOD_FOR_STEEL["pen"]
+    return out
 
 
 def inlays(doc, report):
