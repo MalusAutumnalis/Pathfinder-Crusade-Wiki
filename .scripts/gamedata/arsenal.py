@@ -14,7 +14,7 @@ Lantern → Lantern): каждая строка — свой предмет с �
 import re
 
 import wiki
-from character import names
+from character import TRAITS_FILE, names
 
 ARSENAL = "iv арсенал"
 MELEE_FILES = ("1 рукопашное оружие/1 базовое.md", "1 рукопашное оружие/2 особое.md")
@@ -65,11 +65,11 @@ BLOCK_LABELS = QUALITY_LABELS + ("Приём", "Варианты")
 
 # Тип профиля рукопашного оружия (колонка «Тип») → select листа (MELEE_PROFILES).
 MELEE_PROFILES = {
-    "кулак": "fist", "кулак.б": "fist.a", "нож": "knife", "когти.р": "claws.h", "когти.п": "claws.a",
+    "кулак": "fist", "кулак.б": "fist.a", "нож": "knife", "когти": "claws", "когти.р": "claws.h", "когти.п": "claws.a",
     "меч": "sword", "рапира": "rapier", "сабля": "saber", "топор": "axe", "крюк": "hook",
     "молот": "hammer", "булава": "mace", "кистень": "flail", "копьё": "spear", "посох": "staff",
     "глефа": "glaive", "кнут": "whip", "штык": "bayonet", "щит": "shield", "укус": "bite",
-    "—": "no", "–": "no", "-": "no",
+    "—": "no", "–": "no", "-": "no", "нет": "no",
 }
 MELEE_GROUPS = {"primary", "primary (shield)", "chain", "shock", "power", "exotic", "mechadendrite"}
 SHIELD_SUBTYPES = {
@@ -571,6 +571,81 @@ def weapons(index, report):
         rec = ranged_weapon(r, report)
         ranged.append(Weapon(r, {**rec, "entryType": kind}, table_weight(r, report), kind))
     return melee, ranged, shields
+
+
+# ─── Естественное оружие ────────────────────────────────────────────────────
+
+# Трейты с таблицей профилей естественного оружия; X рейтинга трейта лист
+# добавляет сам (задача 6 `_prd/item_materials/plan.md`), в записи его нет.
+NATURAL_WEAPON_TRAITS = ("Natural Weapons (X)", "Deadly Natural Weapons (X)")
+NATURAL_WEAPON_TYPE = "Трейт"
+NATURAL_WEAPONS_EN = {"Кулаки": "Fists", "Когти": "Claws", "Косы": "Scythes", "Щупальца": "Tentacles",
+                      "Рога": "Horns", "Укус": "Bite", "Копыта": "Hooves"}
+NATURAL_DAMAGE_RE = re.compile(r"^(\d*d\d+)\+X\s+(\S+)$")
+
+
+def natural_weapons(report, doc=None):
+    """Профили трейтов Natural Weapons и Deadly Natural Weapons — записи melee.json.
+
+    Имя — «Claws (Natural Weapons)» / «Когти (Естественное Оружие)»; поле trait —
+    имя трейта в traits.json; урон без +X, Pen 0 (X у Deadly добавляет лист).
+    """
+    doc = doc or wiki.read_document(wiki.ROOT / TRAITS_FILE)
+    by_name = {e.title.en: e for e in wiki.entries(doc, 4)}
+    out = []
+    for trait in NATURAL_WEAPON_TRAITS:
+        e = by_name.get(trait)
+        if e is None:
+            report.add("required", doc.path, f"нет трейта «{trait}» — естественное оружие не выгружено")
+            continue
+        body = e.own_body()
+        table = next(iter(wiki.tables(body)), None)
+        if table is None:
+            report.entry("format", e, "нет таблицы профилей естественного оружия")
+            continue
+        description = wiki.plain_text([(n, t) for n, t in body if n >= table.end])
+        en_kind = trait.removesuffix(" (X)")
+        ru_kind = e.title.ru
+        for row, line in zip(table.dicts(), table.row_lines):
+            where = f"{doc.path}:{line}"
+            ru = cell(row.get("Оружие", ""))
+            en = NATURAL_WEAPONS_EN.get(ru)
+            if en is None:
+                report.add("name", where, f"{trait}: оружие «{ru}» — нет английского имени в NATURAL_WEAPONS_EN")
+                continue
+            raw = cell(row.get("Тип", ""))
+            if raw.lower() not in MELEE_PROFILES:
+                report.add("profile", where, f"{trait}, {ru}: тип профиля «{raw}» не из списка листа")
+            m = NATURAL_DAMAGE_RE.match(cell(row.get("Dmg", "")))
+            if m is None:
+                report.add("profile", where, f"{trait}, {ru}: Dmg «{cell(row.get('Dmg', ''))}» — нужно «1d10+X R»")
+                continue
+            if m.group(2) not in DAMAGE_TYPES:
+                report.add("profile", where, f"{trait}, {ru}: тип урона «{m.group(2)}» не из списка листа")
+            pen = cell(row.get("Pen", ""))
+            if pen not in ("0", "X"):
+                report.add("profile", where, f"{trait}, {ru}: Pen «{pen}» — ждём 0 или X")
+            out.append({
+                "name": f"{en} ({en_kind})",
+                "name_ru": f"{ru} ({ru_kind})",
+                "group": "Primary",
+                "grip": "",
+                "balance": cell(row.get("Bl", "")),
+                "upgrades": "",
+                "tabs": [{
+                    "profile": MELEE_PROFILES.get(raw.lower(), ""),
+                    "range": cell(row.get("Rng", "")),
+                    "damage": m.group(1),
+                    "pen": "0",
+                    "damageType": m.group(2),
+                    "special": cell(row.get("Свойства", "")),
+                }],
+                "shield": {},
+                "description": description,
+                "entryType": NATURAL_WEAPON_TYPE,
+                "trait": trait,
+            })
+    return out
 
 
 # ─── Броня ──────────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@ import arsenal
 import bc as bcmod
 import character
 import conditions
+import materials
 import spells
 import wiki
 from report import Report
@@ -89,7 +90,7 @@ def build(report, bc_assets=bcmod.DEFAULT_ASSETS):
 
 
 def build_arsenal(report, bc, powers):
-    """Арсенал и условия: melee, ranged, gear, cybernetics, модификации, conditions."""
+    """Арсенал и условия: melee, ranged, gear, cybernetics, модификации, материалы, зачарования, conditions."""
     index = arsenal.Index()
     name = lambda x: x.name
     where = lambda x: x.where
@@ -107,14 +108,18 @@ def build_arsenal(report, bc, powers):
     cybernetics = unique(arsenal.cybernetics(index, report), name, where, report, "протез")
     armour_mods = unique(arsenal.armour_mods(index, report), name, where, report, "модификация брони")
     weapon_mods = unique(arsenal.weapon_mods(index, report), name, where, report, "модификация оружия")
+    # Естественное оружие трейтов — не предметы: в gear.json его нет.
+    natural = arsenal.natural_weapons(report)
 
     return {
-        "melee.json": [w.record for w in melee],
+        "melee.json": [w.record for w in melee] + natural,
         "ranged.json": [w.record for w in ranged],
         "gear.json": [it.record for it in gear],
         "cybernetics.json": [it.record for it in cybernetics],
         "armour_mods.json": [it.record for it in armour_mods],
         "weapon_mods.json": [it.record for it in weapon_mods],
+        "materials.json": materials.materials(report),
+        "enchantments.json": materials.enchantments(report),
         "conditions.json": conditions.build(bc, pairs, powers, report),
     }
 
