@@ -69,6 +69,9 @@ ENCHANTMENT_LEVELS = {
     ("Self-Balancing", 7): {"conditions": [{"type": "WeaponBonus", "name": "This item", "field": "balance", "value": "1"}]},
     ("Controlling", 2): {"conditions": [{"type": "WeaponBonus", "name": "This item", "field": "rngMax", "value": "1"}]},
     ("Controlling", 4): {"conditions": [{"type": "WeaponBonus", "name": "This item", "field": "rngMax", "value": "2"}]},
+    # Перезарядка — в полудействиях; лист применяет записи «This item» до прочих и не ниже 1.
+    ("Quick Loading", 2): {"conditions": [{"type": "WeaponBonus", "name": "This item", "field": "reload", "value": "-1"}]},
+    ("Quick Loading", 6): {"conditions": [{"type": "WeaponBonus", "name": "This item", "field": "reload", "value": "×½"}]},
     ("Agile", 1): {"conditions": [{"type": "CharacteristicCapBonus", "name": "A", "value": "5"}]},
     ("Agile", 3): {"conditions": [{"type": "CharacteristicCapBonus", "name": "A", "value": "10"}]},
     ("Agile", 6): {"conditions": [{"type": "CharacteristicCapBonus", "name": "A", "value": "15"}]},
