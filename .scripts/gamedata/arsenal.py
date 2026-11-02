@@ -166,6 +166,17 @@ def parse_weight(value):
     return float(m.group(1)) if m else None
 
 
+def parse_weight_factor(value):
+    """«+20%» → 1.2, «−50%» → 0.5, «×2» → 2: множитель веса оружия; иначе None."""
+    s = cell(value).replace(",", ".").replace("−", "-").replace("–", "-")
+    m = re.match(r"^([+-])\s*(\d+(?:\.\d+)?)\s*%$", s)
+    if m:
+        pct = float(m.group(2)) * (1 if m.group(1) == "+" else -1)
+        return round(1 + pct / 100, 4)
+    m = re.match(r"^[×xх*]\s*(\d+(?:\.\d+)?)$", s)
+    return float(m.group(1)) if m else None
+
+
 def weight_of(value, where, report, what="вес"):
     """Вес ячейки или поля; не число (кроме пустого и «по варианту») — в отчёт, 0."""
     w = parse_weight(value)
@@ -831,12 +842,17 @@ def mods(page, index, report, entry_type):
         fields, _ = entry_description(e)
         raw = field_value(fields, "Вес")
         weight = parse_weight(raw) if raw is not None else None
-        extra = []
+        extra, factor = [], None
         if raw is not None and weight is None and cell(raw) not in EMPTY:
             extra.append(f"Вес: {cell(raw)}")  # +20% или ×2 от веса оружия
+            factor = parse_weight_factor(raw)
+            if factor is None:
+                report.entry("value", e, f"вес «{cell(raw)}» — ни кг, ни множитель")
         _, description = entry_description(e, extra)
         rec = {**names(e), "weight": weight or 0.0, "description": description,
                "entryType": entry_type(e)}
+        if factor is not None:
+            rec["weightFactor"] = factor
         out.append(Item(rec, e.where, e))
     return out
 
@@ -851,12 +867,42 @@ def armour_mods(index, report):
     return out
 
 
+def this_item(field, value):
+    """Запись Weapon листа (weapon_bonus) оружию, связанному с предметом."""
+    return {"type": "WeaponBonus", "name": "This item", "field": field, "value": value}
+
+
+# Механика модификаций оружия (разметка вики её не несёт), по имени выгрузки —
+# после disambiguate. _prd/weapon_mod_effects/plan.md чарника.
+WEAPON_MOD_CONDITIONS = {
+    "Weighted": [this_item("dmg", "3"), this_item("balance", "-1"), this_item("hit", "-10"), this_item("parry", "-10")],
+    "Custom Grip (Рукопашное)": [this_item("hit", "5"), this_item("parry", "5")],
+    "Custom Grip (Дальнобойное)": [this_item("hit", "5"), this_item("parry", "5")],
+    "Duelist Grip": [this_item("parry", "5")],
+    "Compact": [this_item("rng", "×½▲"), this_item("dmg", "-1")],
+    # Только винтовка без Комби: иначе игрок удаляет запись.
+    "Shaftgun": [this_item("balance", "-1")],
+}
+
+# Оковка заменяет материал щита, и её вес лист считает по имени (state/materials.ts
+# hasMetalRim): множитель в выгрузке посчитался бы дважды.
+NAME_WEIGHT_ONLY = {"Metal Rim"}
+
+
 def weapon_mods(index, report):
     out = []
     for f, kind in WEAPON_MODS_FILES:
         page = index.page(path(f))
         out += mods(page, index, report, lambda e, kind=kind: f"{kind}: {e.groups.get(2, '')}")
-    return disambiguate(out, report)
+    out = disambiguate(out, report)
+    for it in out:
+        if it.name in NAME_WEIGHT_ONLY:
+            it.record.pop("weightFactor", None)
+        it.record["conditions"] = WEAPON_MOD_CONDITIONS.get(it.name, [])
+    for name in WEAPON_MOD_CONDITIONS:
+        if not any(it.name == name for it in out):
+            report.add("value", path(WEAPON_MODS_FILES[0][0]), f"правило условий модификации «{name}»: нет такой модификации")
+    return out
 
 
 def disambiguate(items, report):

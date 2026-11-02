@@ -414,10 +414,16 @@ class ModsTest(unittest.TestCase):
         chain, weighted, spikes = [it.record for it in arsenal.mods(page, idx, r, lambda e: e.groups.get(2, ""))]
         self.assertEqual(chain, {"name": "Chain", "name_ru": "Цепь", "weight": 0.0,
                                  "description": "Требование: Любое.\nОружие висит на цепи.", "entryType": "Разное"})
-        self.assertEqual((weighted["weight"], weighted["description"]),
-                         (0.0, "Вес: +20%\nТребование: Баланс −1 или выше.\nТяжелее."))
+        self.assertEqual((weighted["weight"], weighted["weightFactor"], weighted["description"]),
+                         (0.0, 1.2, "Вес: +20%\nТребование: Баланс −1 или выше.\nТяжелее."))
         self.assertEqual(spikes["weight"], 1.5)
+        self.assertNotIn("weightFactor", spikes)
         self.assertEqual(messages(r, "link"), ["Spikes: запись без строки в таблице раздела — выгружена отдельным предметом"])
+
+    def test_weight_factor(self):
+        for raw, factor in [("+20%", 1.2), ("+10 %", 1.1), ("−50%", 0.5), ("-5%", 0.95), ("×2", 2.0), ("x1.5", 1.5),
+                            ("+1.5 кг", None), ("по варианту", None)]:
+            self.assertEqual(arsenal.parse_weight_factor(raw), factor, raw)
 
     def test_same_name_in_two_sections(self):
         r = Report()
