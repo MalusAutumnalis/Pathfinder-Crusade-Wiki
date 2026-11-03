@@ -4,7 +4,7 @@
 нет, она приходит из BC (bc.py):
 - статусы `ii механика/06 раны и урон/1 статусы.md` — по английскому имени
   (пока в вики только русские заголовки `##` — английское из bc_names.json);
-- урон характеристик PF (Characteristic Damage (WS) …);
+- урон характеристик PF (WS damage …);
 - химия — по таблице имён PF → BC («Coffee» ← «Recaf», «… (Post-Effect)»);
 - заклинания, Искусства, таланты и трейты PF с английским именем условия BC
   (Glacial Carapace, Frenzy (Cold Fury)).
@@ -17,7 +17,6 @@ import pf
 import wiki
 
 STATUSES_FILE = "ii механика/06 раны и урон/1 статусы.md"
-CHARACTERISTIC_DAMAGE = "Characteristic Damage"
 NUMBER_RE = re.compile(r"\d+")
 
 
@@ -106,7 +105,8 @@ def build(bc, chemistry_pairs, powers, report, status_doc=None):
         for rec, source in moved:
             add(rec, source, s.text(), s.where, False)
 
-    damage = {f"{CHARACTERISTIC_DAMAGE} ({c})".lower() for c in pf.CHARACTERISTICS}
+    # «Characteristic Damage (WS)» — имя в ассетах BC, собранных до BookParser b4233fc.
+    damage = {n.lower() for c in pf.CHARACTERISTICS for n in (f"{c} damage", f"Characteristic Damage ({c})")}
     for c in bc.conditions:
         if c["name"].lower() in damage:
             add(record(c["name"], c.get("name_ru", ""), c.get("x"), copy(c)), c["name"], None, "BC conditions.json", False)
