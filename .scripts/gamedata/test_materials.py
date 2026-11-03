@@ -1,4 +1,4 @@
-"""Тесты материалов, зачарований и естественного оружия: `cd .scripts/gamedata && python -m unittest`."""
+"""Тесты материалов, зачарований, естественного оружия и Проведения Энергии: `cd .scripts/gamedata && python -m unittest`."""
 
 import textwrap
 import unittest
@@ -259,6 +259,50 @@ class NaturalWeaponsTest(unittest.TestCase):
     def test_unknown_weapon_is_reported(self):
         self.assertEqual(len(self.out), 3)
         self.assertTrue(any("Хвост" in m for m in messages(self.r, "name")))
+
+
+PRIEST = """
+## Трейты
+#### Channel Energy / Проведение Энергии
+Он получает ½ W.b (окр.▼) зарядов Проведения Энергии в день.
+
+- За 1 заряд все цели, излечивающиеся от позитивной энергии, в радиусе 15 м исцеляются на d5 + ⅓ W.b (окр.▲).
+- За 1 заряд все цели, получающие урон от **позитивной** энергии, в радиусе 15 м получают d10 + W.b E(Pos) урона.
+
+- За 1 заряд все цели, излечивающиеся от негативной энергии, в радиусе 15 м исцеляются от d10 + W.b. Можно исключить до W.b целей.
+- За 1 заряд все цели, получающие урон от негативной энергии, в радиусе 15 м получают d5 + ⅓ W.b E(Neg) урона (окр.▲).
+
+#### Divine Spellcasting / Божественное Колдовство
+Колдует в связанном режиме.
+"""
+
+
+class ChannelEnergyTest(unittest.TestCase):
+    def setUp(self):
+        self.r = Report()
+        self.out = arsenal.channel_energy(self.r, doc(PRIEST, "i создание персонажа/архетипы/священник.md"))
+        self.by_name = {w["name"]: w for w in self.out}
+
+    def test_attacks_of_the_modes(self):
+        self.assertEqual([(w["name"], w["damage"], w["damageType"]) for w in self.out], [
+            ("Channel Positive Energy - Heal", "1d5+1/3W.b▲", "E(Pos)"),
+            ("Channel Positive Energy - Harm", "1d10+W.b", "E(Pos)"),
+            ("Channel Negative Energy - Heal", "1d10+W.b", "E(Neg)"),
+            ("Channel Negative Energy - Harm", "1d5+1/3W.b▲", "E(Neg)"),
+        ])
+        harm = self.by_name["Channel Positive Energy - Harm"]
+        self.assertEqual((harm["name_ru"], harm["class"], harm["range"], harm["pen"], harm["entryType"]),
+                         ("Проведение Позитивной Энергии - Урон", "special", "15м", "0", "Трейт"))
+        self.assertEqual(harm["description"], "За 1 заряд все цели, получающие урон от позитивной энергии, в радиусе 15 м "
+                         "получают d10 + W.b E(Pos) урона.\n\nОн получает ½ W.b (окр.▼) зарядов Проведения Энергии в день.")
+        self.assertEqual(self.by_name["Channel Negative Energy - Heal"]["name_ru"], "Проведение Негативной Энергии - Исцеление")
+        self.assertEqual(self.r.items, {})
+
+    def test_missing_mode_is_reported(self):
+        out = arsenal.channel_energy(self.r, doc(PRIEST.replace("исцеляются от", "лечатся"), "i создание персонажа/архетипы/священник.md"))
+        self.assertNotIn("Channel Negative Energy - Heal", [w["name"] for w in out])
+        self.assertEqual(len(out), 3)
+        self.assertTrue(any("Channel Negative Energy - Heal" in m for m in messages(self.r, "format")))
 
 
 if __name__ == "__main__":

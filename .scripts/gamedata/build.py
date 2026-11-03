@@ -108,12 +108,13 @@ def build_arsenal(report, bc, powers):
     cybernetics = unique(arsenal.cybernetics(index, report), name, where, report, "протез")
     armour_mods = unique(arsenal.armour_mods(index, report), name, where, report, "модификация брони")
     weapon_mods = unique(arsenal.weapon_mods(index, report), name, where, report, "модификация оружия")
-    # Естественное оружие трейтов — не предметы: в gear.json его нет.
+    # Естественное оружие и Проведение Энергии трейтов — не предметы: в gear.json их нет.
     natural = arsenal.natural_weapons(report)
+    channel = arsenal.channel_energy(report)
 
     return {
         "melee.json": [w.record for w in melee] + natural,
-        "ranged.json": [w.record for w in ranged],
+        "ranged.json": [w.record for w in ranged] + channel,
         "gear.json": [it.record for it in gear],
         "cybernetics.json": [it.record for it in cybernetics],
         "armour_mods.json": [it.record for it in armour_mods],

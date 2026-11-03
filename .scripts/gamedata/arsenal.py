@@ -77,7 +77,7 @@ SHIELD_SUBTYPES = {
     "лёгкий башенный": "light tower", "башенный": "tower",
 }
 RANGED_CLASSES = {"pistol", "rifle", "long rifle", "heavy", "throwing", "grenade", "special"}
-DAMAGE_TYPES = {"I", "I(Cr)", "R", "X", "X(Fr)", "E", "E(El)", "E(Ls)", "E(Fl)", "C", "C(Tx)"}
+DAMAGE_TYPES = {"I", "I(Cr)", "R", "X", "X(Fr)", "E", "E(El)", "E(Ls)", "E(Fl)", "E(Cl)", "E(Pos)", "E(Neg)", "C", "C(Tx)"}
 
 # `2×M` — множитель массы заряда (Powder Charge).
 DICE = r"(?:\d*d\d+|\d+(?:×M)?|[A-Z]{1,2}\.b)"
@@ -657,6 +657,97 @@ def natural_weapons(report, doc=None):
                 "trait": trait,
             })
     return out
+
+
+# ─── Проведение Энергии ─────────────────────────────────────────────────────
+
+# Режимы трейта священника — дальнобойные атаки ranged.json, как профили
+# естественного оружия — рукопашные; в gear.json их нет. Значение и радиус — из
+# пункта списка трейта: «…исцеляются на d5 + ⅓ W.b (окр.▲)», «…получают d10 + W.b
+# E(Pos) урона». У исцеления тип — та же энергия: пустой лист заменил бы на I.
+CHANNEL_ENERGY_FILE = "i создание персонажа/архетипы/священник.md"
+CHANNEL_ENERGY_TRAIT = "Channel Energy"
+# (тип, английское и русское имя энергии, корень прилагательного в тексте пункта)
+CHANNEL_ENERGIES = (("Pos", "Positive", "Позитивной", "позитивн"), ("Neg", "Negative", "Негативной", "негативн"))
+# (режим, русское имя, значение в пункте: группа 1 — выражение, 2 — округление)
+CHANNEL_MODES = (
+    ("Heal", "Исцеление", re.compile(r"исцеляются\s+(?:на|от)\s+(.+?)(?:\s*\(окр\.\s*([▲▼])\s*\))?\.(?:\s|$)")),
+    ("Harm", "Урон", re.compile(r"получают\s+(.+?)\s+E\((?:Pos|Neg)\)\s+урона(?:\s*\(окр\.\s*([▲▼])\s*\))?")),
+)
+CHANNEL_ENERGY_RE = re.compile(r"от\s+(позитивн|негативн)\w*\s+энергии")
+CHANNEL_RANGE_RE = re.compile(r"в радиусе\s+(\d+)\s*м")
+_SHEET_TERM = r"(?:\d*d\d+|\d+|(?:½|\d+/\d+)?[A-Z]{1,2}\.b[▲▼]?)"
+SHEET_DAMAGE_RE = re.compile(rf"^{_SHEET_TERM}(?:[+\-–]{_SHEET_TERM})*$")
+
+
+def sheet_damage(text, rounding):
+    """`d5 + ⅓ W.b` и ▲ → `1d5+1/3W.b▲`: лист не знает «⅓», округление — у доли характеристики."""
+    s = text.replace(" ", "").replace("⅓", "1/3").replace("⅔", "2/3").replace("¼", "1/4")
+    s = re.sub(r"(?<![\d)])d(\d+)", r"1d\1", s)
+    if rounding:
+        s = re.sub(r"((?:½|\d+/\d+)[A-Z]{1,2}\.b)", rf"\g<1>{rounding}", s)
+    return s
+
+
+def channel_energy(report, doc=None):
+    """Атаки режимов трейта Channel Energy: исцеление и урон позитивной и негативной энергии.
+
+    Описание — пункт режима и абзац о зарядах трейта.
+    """
+    doc = doc or wiki.read_document(wiki.ROOT / CHANNEL_ENERGY_FILE)
+    e = next((x for x in wiki.entries(doc, 4) if x.title.en == CHANNEL_ENERGY_TRAIT), None)
+    if e is None:
+        report.add("required", doc.path, f"нет трейта «{CHANNEL_ENERGY_TRAIT}» — его атаки не выгружены")
+        return []
+    lines = [(n, wiki.plain_inline(t).strip()) for n, t in e.own_body()]
+    charges = next((t for _, t in lines if t and not t.startswith("- ")), "")
+    bullets = {}
+    for n, t in lines:
+        energy = CHANNEL_ENERGY_RE.search(t) if t.startswith("- ") else None
+        for mode, _, value_re in CHANNEL_MODES:
+            m = value_re.search(t) if energy else None
+            if m:
+                bullets[(energy.group(1), mode)] = (n, t.removeprefix("- ").strip(), m)
+    out = []
+    for kind, en, ru, stem in CHANNEL_ENERGIES:
+        for mode, mode_ru, _ in CHANNEL_MODES:
+            name = f"Channel {en} Energy - {mode}"
+            if (stem, mode) not in bullets:
+                report.entry("format", e, f"нет пункта режима «{name}» — атака не выгружена")
+                continue
+            line, text, m = bullets[(stem, mode)]
+            out.append(channel_attack(name, f"Проведение {ru} Энергии - {mode_ru}", kind, text, m.group(1), m.group(2),
+                                      charges, f"{doc.path}:{line}", report))
+    return out
+
+
+def channel_attack(name, name_ru, kind, text, value, rounding, charges, where, report):
+    damage = sheet_damage(value, rounding)
+    if not SHEET_DAMAGE_RE.match(damage):
+        report.add("profile", where, f"{name}: «{value}» — не выражение урона листа")
+    radius = CHANNEL_RANGE_RE.search(text)
+    if radius is None:
+        report.add("profile", where, f"{name}: нет радиуса «в радиусе N м»")
+    return {
+        "name": name,
+        "name_ru": name_ru,
+        "class": "special",
+        "range": f"{radius.group(1)}м" if radius else "",
+        "damage": damage,
+        "pen": "0",
+        "damageType": f"E({kind})",
+        "rofSingle": "S",
+        "rofShort": "–",
+        "rofLong": "–",
+        # Заряды — в день, не магазин: о них говорит описание.
+        "clipCur": "",
+        "clipMax": "",
+        "reload": "",
+        "special": "",
+        "upgrades": "",
+        "description": f"{text}\n\n{charges}".strip(),
+        "entryType": NATURAL_WEAPON_TYPE,
+    }
 
 
 # ─── Броня ──────────────────────────────────────────────────────────────────
